@@ -2,11 +2,12 @@
 package kafka
 
 import (
-	"MarkerTradeia/internal/core/domain"
-	"MarkerTradeia/internal/core/ports/in"
 	"context"
 	"log"
 	"time" // Se agrega la importación de time
+
+	"github.com/ivan-salazar14/markerTradeIa/internal/core/domain"
+	"github.com/ivan-salazar14/markerTradeIa/internal/core/ports/in"
 )
 
 // ConsumerAdapter implementa la interfaz in.EventReceiver
@@ -36,7 +37,7 @@ func (a *ConsumerAdapter) StartConsuming(ctx context.Context) error {
 			signal := domain.TradingSignal{
 				ID:        "SIG-12345",
 				Symbol:    "BTCUSDT",
-				Signal:    domain.Buy,
+				Type:      domain.Buy,
 				Price:     25000.0,
 				Timestamp: time.Now(),
 			}

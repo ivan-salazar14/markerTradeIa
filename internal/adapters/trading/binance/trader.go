@@ -2,11 +2,12 @@
 package binance
 
 import (
-	"MarkerTradeia/internal/core/domain"
-	"MarkerTradeia/internal/core/ports/out"
 	"context"
 	"log"
 	"time"
+
+	"github.com/ivan-salazar14/markerTradeIa/internal/core/domain"
+	"github.com/ivan-salazar14/markerTradeIa/internal/core/ports/out"
 )
 
 // BinanceTrader es un adaptador que implementa el puerto Trader
@@ -24,7 +25,7 @@ func NewBinanceTrader() out.Trader {
 // ExecuteTrade implementa la lógica para ejecutar una orden en Binance.
 func (a *BinanceTrader) ExecuteTrade(ctx context.Context, signal domain.TradingSignal) (domain.TradeExecution, error) {
 	log.Printf("Ejecutando orden '%s' en Binance para el símbolo '%s' a precio %.2f...",
-		signal.Signal, signal.Symbol, signal.Price)
+		signal.Type, signal.Symbol, signal.Price)
 
 	// Lógica para interactuar con la API de Binance
 	// En un caso real, esto llamaría a `binanceClient.NewOrder(...)`

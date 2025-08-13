@@ -2,10 +2,11 @@
 package postgres
 
 import (
-	"MarkerTradeia/internal/core/domain"
-	"MarkerTradeia/internal/core/ports/out"
 	"context"
 	"log"
+
+	"github.com/ivan-salazar14/markerTradeIa/internal/core/domain"
+	"github.com/ivan-salazar14/markerTradeIa/internal/core/ports/out"
 )
 
 // TradeRepository implementa la interfaz out.TradeRepository para PostgreSQL.

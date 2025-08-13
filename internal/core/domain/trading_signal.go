@@ -18,4 +18,5 @@ type TradingSignal struct {
 	Symbol    string
 	Price     float64
 	Timestamp time.Time
+	Type      SignalType // Cambiado de Signal a Type para mayor claridad
 }

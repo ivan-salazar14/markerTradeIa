@@ -2,8 +2,9 @@
 package in
 
 import (
-	"MarkerTradeia/internal/core/domain"
 	"context"
+
+	"github.com/ivan-salazar14/markerTradeIa/internal/core/domain"
 )
 
 // EventReceiver es el puerto de entrada para recibir eventos.

@@ -4,8 +4,9 @@ package service
 import (
 	"context"
 	"log"
-	"makerTradeia/internal/core/domain"
-	"makerTradeia/internal/core/ports/out"
+
+	"github.com/ivan-salazar14/markerTradeIa/internal/core/domain"
+	"github.com/ivan-salazar14/markerTradeIa/internal/core/ports/out"
 )
 
 // TradingService implementa el puerto de la aplicación.
@@ -21,7 +22,7 @@ func NewTradingService(t out.Trader, r out.TradeRepository) *TradingService {
 
 // ProcessSignal implementa la lógica para validar, ejecutar y guardar una señal.
 func (s *TradingService) ProcessSignal(ctx context.Context, signal domain.TradingSignal) error {
-	log.Printf("Procesando señal de trading para símbolo: %s, tipo: %s", signal.Symbol, signal.Signal)
+	log.Printf("Procesando señal de trading para símbolo: %s, precio: %f", signal.Symbol, signal.Price)
 
 	// Aquí iría la lógica de validación de la señal, si fuera necesaria.
 

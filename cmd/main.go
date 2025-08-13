@@ -1,36 +1,35 @@
-// Este archivo representa la estructura completa de un servicio de trading en Go
-// que sigue la arquitectura hexagonal (puertos y adaptadores) y DDD.
+// Este archivo representa la estructura completa del servicio de trading en Go
 
 // go.mod
 // Módulo para la gestión de dependencias.
 // En un proyecto real, se agregarían las dependencias de Kafka, PostgreSQL, etc.
 //
 // go.mod
-// module myapp
-// go 1.22
+// module MarkerTradeia
+// go 1.25
 
 // go.sum
 // Archivo de suma de verificación de dependencias.
 //
 
-// file: cmd/trading-service/main.go
+// file: cmd/main.go
 // Punto de entrada de la aplicación. Aquí se "cablean" todas las dependencias.
 package main
 
 import (
-	"MarkerTradeia/internal/adapters/kafka"
-	"MarkerTradeia/internal/adapters/repository/postgres"
-	"MarkerTradeia/internal/adapters/trading/binance"
-	"MarkerTradeia/internal/service"
 	"context"
 	"log"
+
+	"github.com/ivan-salazar14/markerTradeIa/internal/adapters/kafka"
+	"github.com/ivan-salazar14/markerTradeIa/internal/adapters/repository/postgres"
+	"github.com/ivan-salazar14/markerTradeIa/internal/adapters/trading/binance"
+	"github.com/ivan-salazar14/markerTradeIa/internal/service"
 )
 
 func main() {
 	log.Println("Iniciando servicio de trading...")
 
 	// Inicializar los adaptadores de salida
-	// En un proyecto real, se pasarían clientes de base de datos y de API
 	tradeRepository := postgres.NewTradeRepository()
 	binanceTrader := binance.NewBinanceTrader()
 
