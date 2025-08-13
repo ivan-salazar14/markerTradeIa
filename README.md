@@ -13,11 +13,11 @@ MarkerTradeIa is a Go-based trading service that processes trading signals, exec
 
 ```mermaid
 flowchart TD
-    A[Kafka Consumer (EventReceiver)] -->|Receives TradingSignal| B[Trading Service]
-    B -->|Executes Trade| C[Binance Adapter]
-    B -->|Persists Execution| D[Postgres Adapter]
-    C -->|TradeExecution| B
-    D -->|Save Success/Error| B
+    A[Kafka Consumer (EventReceiver)] --> B[Trading Service]
+    B --> C[Binance Adapter]
+    B --> D[Postgres Adapter]
+    C --> B
+    D --> B
 ```
 
 ## Main Components
