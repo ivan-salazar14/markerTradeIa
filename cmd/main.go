@@ -23,7 +23,7 @@ import (
 	"github.com/ivan-salazar14/markerTradeIa/internal/adapters/kafka"
 	"github.com/ivan-salazar14/markerTradeIa/internal/adapters/repository/postgres"
 	"github.com/ivan-salazar14/markerTradeIa/internal/adapters/trading/binance"
-	"github.com/ivan-salazar14/markerTradeIa/internal/service"
+	"github.com/ivan-salazar14/markerTradeIa/internal/core/usecases/order"
 )
 
 func main() {
@@ -34,7 +34,7 @@ func main() {
 	binanceTrader := binance.NewBinanceTrader()
 
 	// Inicializar el servicio de aplicación, inyectando los adaptadores de salida
-	tradingService := service.NewTradingService(binanceTrader, tradeRepository)
+	tradingService := order.NewTradingService(binanceTrader, tradeRepository)
 
 	// Inicializar el adaptador de entrada de Kafka, inyectando el servicio de aplicación
 	kafkaConsumer := kafka.NewConsumerAdapter(tradingService)

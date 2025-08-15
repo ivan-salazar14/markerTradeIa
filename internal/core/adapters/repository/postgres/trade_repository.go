@@ -11,13 +11,14 @@ import (
 
 // TradeRepository implementa la interfaz out.TradeRepository para PostgreSQL.
 type TradeRepository struct {
-	// db *sql.DB // Cliente de la base de datos
+	db *connectionDB // Cliente de la base de datos, se debe inicializar en NewTradeRepository
 }
 
 // NewTradeRepository crea un nuevo adaptador de repositorio.
 func NewTradeRepository() out.TradeRepository {
 	// Inicialización del cliente de PostgreSQL
-	return &TradeRepository{}
+	db := getInstance()
+	return &TradeRepository{db: db}
 }
 
 // SaveTradeExecution guarda el resultado de una ejecución en la base de datos.

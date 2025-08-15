@@ -30,6 +30,8 @@ func (a *BinanceTrader) ExecuteTrade(ctx context.Context, signal domain.TradingS
 	// Lógica para interactuar con la API de Binance
 	// En un caso real, esto llamaría a `binanceClient.NewOrder(...)`
 
+	// get account information for users with active plan to trade
+
 	// Simulación de ejecución exitosa
 	execution := domain.TradeExecution{
 		ExecutionID: "EXEC-" + signal.ID,

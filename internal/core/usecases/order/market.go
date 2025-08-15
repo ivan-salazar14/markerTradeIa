@@ -1,5 +1,4 @@
-// Implementación del servicio de aplicación, que orquesta el flujo de negocio.
-package service
+package order
 
 import (
 	"context"
