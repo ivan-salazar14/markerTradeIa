@@ -6,8 +6,8 @@ import (
 	"log"
 	"time" // Se agrega la importación de time
 
-	"github.com/ivan-salazar14/markerTradeIa/internal/core/domain"
-	"github.com/ivan-salazar14/markerTradeIa/internal/core/ports/in"
+	"github.com/ivan-salazar14/markerTradeIa/internal/domain"
+	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/ports/in"
 )
 
 // ConsumerAdapter implementa la interfaz in.EventReceiver

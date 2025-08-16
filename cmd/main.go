@@ -20,17 +20,20 @@ import (
 	"context"
 	"log"
 
-	"github.com/ivan-salazar14/markerTradeIa/internal/adapters/kafka"
-	"github.com/ivan-salazar14/markerTradeIa/internal/adapters/repository/postgres"
-	"github.com/ivan-salazar14/markerTradeIa/internal/adapters/trading/binance"
-	"github.com/ivan-salazar14/markerTradeIa/internal/core/usecases/order"
+	"github.com/ivan-salazar14/markerTradeIa/internal/application/usecases/order"
+	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/kafka"
+	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/repository/database"
+	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/repository/tradeAdapter"
+	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/trading/binance"
 )
 
 func main() {
 	log.Println("Iniciando servicio de trading...")
-
+	migrator := database.NewMigrator()
+	migrator.CreateStructures()
 	// Inicializar los adaptadores de salida
-	tradeRepository := postgres.NewTradeRepository()
+	tradeRepository := tradeAdapter.NewTradeRepository()
+
 	binanceTrader := binance.NewBinanceTrader()
 
 	// Inicializar el servicio de aplicación, inyectando los adaptadores de salida

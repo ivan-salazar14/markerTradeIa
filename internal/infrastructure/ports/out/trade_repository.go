@@ -3,7 +3,7 @@ package out
 import (
 	"context"
 
-	"github.com/ivan-salazar14/markerTradeIa/internal/core/domain"
+	"github.com/ivan-salazar14/markerTradeIa/internal/domain"
 )
 
 // TradeRepository es el puerto para guardar datos de la aplicación.

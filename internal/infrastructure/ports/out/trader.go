@@ -3,7 +3,7 @@ package out
 import (
 	"context"
 
-	"github.com/ivan-salazar14/markerTradeIa/internal/core/domain"
+	"github.com/ivan-salazar14/markerTradeIa/internal/domain"
 )
 
 // Trader es el puerto para ejecutar operaciones de trading.

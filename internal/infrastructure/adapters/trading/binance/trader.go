@@ -6,8 +6,8 @@ import (
 	"log"
 	"time"
 
-	"github.com/ivan-salazar14/markerTradeIa/internal/core/domain"
-	"github.com/ivan-salazar14/markerTradeIa/internal/core/ports/out"
+	"github.com/ivan-salazar14/markerTradeIa/internal/domain"
+	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/ports/out"
 )
 
 // BinanceTrader es un adaptador que implementa el puerto Trader

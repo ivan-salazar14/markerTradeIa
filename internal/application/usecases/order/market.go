@@ -4,8 +4,8 @@ import (
 	"context"
 	"log"
 
-	"github.com/ivan-salazar14/markerTradeIa/internal/core/domain"
-	"github.com/ivan-salazar14/markerTradeIa/internal/core/ports/out"
+	"github.com/ivan-salazar14/markerTradeIa/internal/domain"
+	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/ports/out"
 )
 
 // TradingService implementa el puerto de la aplicación.
@@ -19,7 +19,6 @@ func NewTradingService(t out.Trader, r out.TradeRepository) *TradingService {
 	return &TradingService{trader: t, repo: r}
 }
 
-// ProcessSignal implementa la lógica para validar, ejecutar y guardar una señal.
 func (s *TradingService) ProcessSignal(ctx context.Context, signal domain.TradingSignal) error {
 	log.Printf("Procesando señal de trading para símbolo: %s, precio: %f", signal.Symbol, signal.Price)
 
