@@ -15,5 +15,5 @@ type EventReceiver interface {
 
 // TradingServicePort es el puerto que el adaptador de entrada usa para llamar al servicio.
 type TradingServicePort interface {
-	ProcessSignal(ctx context.Context, signal domain.TradingSignal) error
+	ProcessSignalsInBatch(ctx context.Context, signals []domain.TradingSignal) error
 }

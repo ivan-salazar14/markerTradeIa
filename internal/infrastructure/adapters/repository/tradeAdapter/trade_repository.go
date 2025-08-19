@@ -6,9 +6,9 @@ import (
 	"log"
 
 	"github.com/ivan-salazar14/markerTradeIa/internal/domain"
+	"github.com/ivan-salazar14/markerTradeIa/internal/domain/ports/out"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/repository/database"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/repository/tradeAdapter/mappers"
-	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/ports/out"
 	"gorm.io/gorm"
 )
 
@@ -25,7 +25,7 @@ func NewTradeRepository() out.TradeRepository {
 
 // SaveTradeExecution guarda el resultado de una ejecución en la base de datos.
 func (r *TradeRepository) SaveTradeExecution(ctx context.Context, trade domain.TradeExecution) error {
-	log.Printf("Guardando ejecución de orden %s en PostgreSQL...", trade.ExecutionID)
+	log.Printf("Guardando ejecución de orden %s en PostgreSQL y estatus %s", trade.ExecutionID, trade.Status)
 	// Lógica de SQL para guardar el `trade`
 	model := mappers.TradeDomainToModel(trade, "UserID")
 	tx := r.db.Save(&model)

@@ -17,5 +17,7 @@ type TradeExecution struct {
 	SignalID    string
 	Status      ExecutionStatus
 	ExecutedAt  time.Time
+	ExecutedQty float64 // Cantidad ejecutada
 	Details     string
+	Error       error // Error opcional en caso de fallo
 }

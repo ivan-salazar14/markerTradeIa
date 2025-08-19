@@ -21,10 +21,12 @@ import (
 	"log"
 
 	"github.com/ivan-salazar14/markerTradeIa/internal/application/usecases/order"
+	"github.com/ivan-salazar14/markerTradeIa/internal/domain/ports/out"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/kafka"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/repository/database"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/repository/tradeAdapter"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/trading/binance"
+	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/user"
 )
 
 func main() {
@@ -33,11 +35,11 @@ func main() {
 	migrator.CreateStructures()
 	// Inicializar los adaptadores de salida
 	tradeRepository := tradeAdapter.NewTradeRepository()
-
 	binanceTrader := binance.NewBinanceTrader()
+	userAdapter := user.NewHttpUserService("http://localhost:8080/users")
+	tt := out.Trader(binanceTrader)
 
-	// Inicializar el servicio de aplicación, inyectando los adaptadores de salida
-	tradingService := order.NewTradingService(binanceTrader, tradeRepository)
+	tradingService := order.NewTradingService(userAdapter, tt, tradeRepository)
 
 	// Inicializar el adaptador de entrada de Kafka, inyectando el servicio de aplicación
 	kafkaConsumer := kafka.NewConsumerAdapter(tradingService)

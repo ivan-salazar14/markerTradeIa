@@ -19,4 +19,5 @@ type TradingSignal struct {
 	Price     float64
 	Timestamp time.Time
 	Type      SignalType // Cambiado de Signal a Type para mayor claridad
+	Strategy  string     // Estrategia asociada a la señal
 }
