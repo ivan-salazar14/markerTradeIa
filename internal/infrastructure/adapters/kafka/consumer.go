@@ -3,8 +3,10 @@ package kafka
 
 import (
 	"context"
+	"fmt"
 	"log"
-	"time" // Se agrega la importación de time
+	"math/rand"
+	"time"
 
 	"github.com/ivan-salazar14/markerTradeIa/internal/domain"
 	"github.com/ivan-salazar14/markerTradeIa/internal/domain/ports/in"
@@ -31,25 +33,39 @@ func (a *ConsumerAdapter) StartConsuming(ctx context.Context) error {
 	// Goroutine que procesa los lotes del canal intermedio
 	go a.processSignalsInBatches(ctx, signalsToProcess)
 
-	for {
+	maxSignals := 20
+	sent := 0
+	rand.Seed(time.Now().UnixNano())
+	for sent < maxSignals {
 		select {
 		case <-ctx.Done():
 			log.Println("Consumidor de Kafka detenido.")
+			close(signalsToProcess)
 			return ctx.Err()
 		default:
-			// Lógica para recibir un mensaje de Kafka (un solo mensaje por vez)
+			// Precio aleatorio entre 10000 y 120000
+			price := 10000 + rand.Float64()*(120000-10000)
+			// Tipo aleatorio
+			var tipo domain.SignalType
+			if rand.Intn(2) == 0 {
+				tipo = domain.Buy
+			} else {
+				tipo = domain.Sell
+			}
 			signal := domain.TradingSignal{
-				ID:       "1",
+				ID:       fmt.Sprintf("%d", sent+1),
 				Strategy: "conservative",
 				Symbol:   "BTCUSDT",
-				Price:    114844,
-				Type:     "BUY",
+				Price:    price,
+				Type:     tipo,
 			}
-
-			// Enviamos la señal al canal intermedio, no la procesamos aquí
 			signalsToProcess <- signal
+			sent++
 		}
 	}
+	log.Println("Se enviaron todas las señales de prueba, cerrando canal.")
+	close(signalsToProcess)
+	return nil
 }
 
 // processSignalsInBatches es una nueva goroutine que lee del canal
@@ -59,7 +75,14 @@ func (a *ConsumerAdapter) processSignalsInBatches(ctx context.Context, signalsCh
 
 	for {
 		select {
-		case signal := <-signalsCh:
+		case signal, ok := <-signalsCh:
+			if !ok {
+				// El canal está cerrado, procesar cualquier batch pendiente y salir
+				if len(signalsBatch) > 0 {
+					a.tradingService.ProcessSignalsInBatch(ctx, signalsBatch)
+				}
+				return
+			}
 			signalsBatch = append(signalsBatch, signal)
 			if len(signalsBatch) >= batchSize {
 				log.Printf("Recibida batch de señales por batch de trading: %+v", len(signalsBatch))

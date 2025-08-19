@@ -71,22 +71,19 @@ func (a *BinanceTrader) worker(
 	inputCh <-chan domain.TradingSignal,
 	resultsCh chan<- domain.TradeExecution,
 	wg *sync.WaitGroup,
-	users []domain.User, // Pasamos la información de usuarios aquí
+	users []domain.User,
 ) {
 	defer wg.Done()
 
 	for signal := range inputCh {
-		// Aquí puedes buscar el usuario por alguna clave en la lista 'users'.
 		// Por simplicidad, simularemos que encontramos el usuario.
 		user := users[id%len(users)]
 
 		log.Printf("Worker %d: Procesando señal '%s' para user '%s'", id, signal.ID, user.UID)
 
-		// La lógica original de ExecuteTrade va aquí
 		tradeExecution, err := a.executeTrade(ctx, user, signal)
 		if err != nil {
 			log.Printf("Worker %d: Error al ejecutar orden para señal %s: %v", id, signal.ID, err)
-			resultsCh <- tradeExecution
 		}
 		resultsCh <- tradeExecution
 	}
@@ -99,7 +96,7 @@ func (a *BinanceTrader) ProcessBatch(ctx context.Context, users []domain.User, s
 	var wg sync.WaitGroup
 
 	// FAN-OUT: Lanzar workers
-	numWorkers := 5 // O el número que decidas
+	numWorkers := 10
 	wg.Add(numWorkers)
 	for i := 0; i < numWorkers; i++ {
 		go a.worker(ctx, i, inputCh, resultsCh, &wg, users)
@@ -119,20 +116,16 @@ func (a *BinanceTrader) ProcessBatch(ctx context.Context, users []domain.User, s
 		close(resultsCh)
 	}()
 
-	// FAN-IN: Leer los resultados del canal y consolidarlos
+	// FAN-IN: Leer los resultados del canal y consolidarlos, y hacer el summary en el mismo ciclo
 	var executions []domain.TradeExecution
-	for result := range resultsCh {
-		executions = append(executions, result)
-	}
-	startTime := time.Now()
-
-	// Leer y procesar los resultados
-	fmt.Println("Processing trades and collecting results...")
 	tradesCompleted := 0
 	tradesPartiallyFilled := 0
 	tradesFailed := 0
+	startTime := time.Now()
 
+	fmt.Println("Processing trades and collecting results...")
 	for result := range resultsCh {
+		executions = append(executions, result)
 		fmt.Printf("Received result for UID %s: Status: %s, Executed: %.2f\n",
 			result.ExecutionID, result.Status, result.ExecutedQty)
 
@@ -152,6 +145,5 @@ func (a *BinanceTrader) ProcessBatch(ctx context.Context, users []domain.User, s
 	fmt.Printf("Summary: Completed: %d, Partially Filled: %d, Failed: %d\n",
 		tradesCompleted, tradesPartiallyFilled, tradesFailed)
 	fmt.Printf("Total execution time: %s\n", elapsedTime)
-
 	return executions
 }

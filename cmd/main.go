@@ -48,14 +48,10 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Iniciar el consumidor de Kafka en una goroutine para que el main no se bloquee
-	go func() {
-		if err := kafkaConsumer.StartConsuming(ctx); err != nil {
-			log.Fatalf("Fallo al iniciar el consumidor de Kafka: %v", err)
-		}
-	}()
-
+	// Iniciar el consumidor de Kafka y esperar a que termine
 	log.Println("Servicio de trading iniciado. Esperando señales...")
-	// Bloquear el main para mantener el programa en ejecución
-	select {}
+	if err := kafkaConsumer.StartConsuming(ctx); err != nil {
+		log.Fatalf("Fallo al iniciar el consumidor de Kafka: %v", err)
+	}
+	log.Println("Servicio de trading finalizado.")
 }
