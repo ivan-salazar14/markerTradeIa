@@ -5,23 +5,20 @@ import (
 	"log"
 
 	"github.com/ivan-salazar14/markerTradeIa/internal/domain"
-	"github.com/ivan-salazar14/markerTradeIa/internal/domain/ports/in"
 	"github.com/ivan-salazar14/markerTradeIa/internal/domain/ports/out"
 )
 
 // BatchProcessor es un servicio de la capa de aplicación que orquesta el procesamiento concurrente
 type BatchProcessor struct {
-	userFinder    in.UserServicePort  // Puerto para obtener usuarios (adaptador de DB)
-	tradingTrader out.Trader          // Puerto para ejecutar trades (BinanceTrader)
-	repo          out.TradeRepository // Puerto para guardar ejecuciones de trades
+	userFinder    out.UserServicePort
+	tradingTrader out.Trader
+	repo          out.TradeRepository
 }
 
-// NewBatchProcessor es el constructor del servicio.
-func NewBatchProcessor(uf in.UserServicePort, tt out.Trader, r out.TradeRepository) *BatchProcessor {
+func NewBatchProcessor(uf out.UserServicePort, tt out.Trader, r out.TradeRepository) *BatchProcessor {
 	return &BatchProcessor{userFinder: uf, tradingTrader: tt, repo: r}
 }
 
-// Process es el método principal que usará el usecase.
 func (s *BatchProcessor) Process(ctx context.Context, signals []domain.TradingSignal) ([]domain.TradeExecution, error) {
 	users, err := s.userFinder.GetUsers()
 	if err != nil {

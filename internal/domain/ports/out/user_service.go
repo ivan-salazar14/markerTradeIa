@@ -1,4 +1,4 @@
-package in
+package out
 
 import (
 	"github.com/ivan-salazar14/markerTradeIa/internal/domain"

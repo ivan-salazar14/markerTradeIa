@@ -14,6 +14,12 @@ import (
 	"github.com/ivan-salazar14/markerTradeIa/internal/domain/ports/out"
 )
 
+// task representa una combinación de usuario y señal a procesar
+type task struct {
+	user   domain.User
+	signal domain.TradingSignal
+}
+
 // BinanceTrader es un adaptador que implementa el puerto Trader
 // para interactuar con el exchange de Binance.
 type BinanceTrader struct {
@@ -34,7 +40,7 @@ func (a *BinanceTrader) executeTrade(ctx context.Context, user domain.User, sign
 	log.Printf("Ejecutando orden '%s' en Binance para el símbolo '%s' a precio %.2f...",
 		signal.Type, signal.Symbol, signal.Price)
 	// Simulación de una llamada a la API de Binance
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(5000 * time.Millisecond)
 
 	// Simulamos un fallo aleatorio
 	if rand.Float64() < 0.3 { // 30% de probabilidad de fallo
@@ -68,22 +74,16 @@ func (a *BinanceTrader) executeTrade(ctx context.Context, user domain.User, sign
 func (a *BinanceTrader) worker(
 	ctx context.Context,
 	id int,
-	inputCh <-chan domain.TradingSignal,
+	taskCh <-chan task,
 	resultsCh chan<- domain.TradeExecution,
 	wg *sync.WaitGroup,
-	users []domain.User,
 ) {
 	defer wg.Done()
-
-	for signal := range inputCh {
-		// Por simplicidad, simularemos que encontramos el usuario.
-		user := users[id%len(users)]
-
-		log.Printf("Worker %d: Procesando señal '%s' para user '%s'", id, signal.ID, user.UID)
-
-		tradeExecution, err := a.executeTrade(ctx, user, signal)
+	for t := range taskCh {
+		log.Printf("Worker %d: Procesando señal '%s' para user '%s'", id, t.signal.ID, t.user.UID)
+		tradeExecution, err := a.executeTrade(ctx, t.user, t.signal)
 		if err != nil {
-			log.Printf("Worker %d: Error al ejecutar orden para señal %s: %v", id, signal.ID, err)
+			log.Printf("Worker %d: Error al ejecutar orden para señal %s y user %s: %v", id, t.signal.ID, t.user.UID, err)
 		}
 		resultsCh <- tradeExecution
 	}
@@ -91,22 +91,29 @@ func (a *BinanceTrader) worker(
 
 // ProcessBatch procesa un lote de señales de trading en paralelo.
 func (a *BinanceTrader) ProcessBatch(ctx context.Context, users []domain.User, signals []domain.TradingSignal) []domain.TradeExecution {
-	inputCh := make(chan domain.TradingSignal, len(signals))
-	resultsCh := make(chan domain.TradeExecution, len(signals))
+	tasks := make([]task, 0, len(users)*len(signals))
+	for _, user := range users {
+		for _, signal := range signals {
+			tasks = append(tasks, task{user: user, signal: signal})
+		}
+	}
+
+	taskCh := make(chan task, len(tasks))
+	resultsCh := make(chan domain.TradeExecution, len(tasks))
 	var wg sync.WaitGroup
 
 	// FAN-OUT: Lanzar workers
-	numWorkers := 10
+	numWorkers := 5
 	wg.Add(numWorkers)
 	for i := 0; i < numWorkers; i++ {
-		go a.worker(ctx, i, inputCh, resultsCh, &wg, users)
+		go a.worker(ctx, i, taskCh, resultsCh, &wg)
 	}
 
-	// Llenar el canal de entrada y cerrarlo cuando termine
+	// Llenar el canal de tareas y cerrarlo cuando termine
 	go func() {
-		defer close(inputCh)
-		for _, signal := range signals {
-			inputCh <- signal
+		defer close(taskCh)
+		for _, t := range tasks {
+			taskCh <- t
 		}
 	}()
 
