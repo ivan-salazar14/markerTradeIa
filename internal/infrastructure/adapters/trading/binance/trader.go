@@ -37,12 +37,23 @@ var amount = 10.0
 
 // ExecuteTrade implementa la lógica para ejecutar una orden en Binance.
 func (a *BinanceTrader) executeTrade(ctx context.Context, user domain.User, signal domain.TradingSignal) (domain.TradeExecution, error) {
-	log.Printf("Ejecutando orden '%s' en Binance para el símbolo '%s' a precio %.2f...",
-		signal.Type, signal.Symbol, signal.Price)
+
+	select {
+	case <-ctx.Done():
+		log.Printf("Contexto cancelado. No se puede ejecutar la orden para el usuario %s", user.UID)
+		return domain.TradeExecution{
+			ExecutionID: user.UID,
+			Status:      "CANCELED",
+			Error:       ctx.Err(),
+		}, ctx.Err()
+	default:
+		// Continuar con la ejecución de la orden
+	}
+	log.Printf("Ejecutando orden '%s' en Binance para el símbolo '%s' a precio %.2f...", signal.Type, signal.Symbol, signal.Price)
+
 	// Simulación de una llamada a la API de Binance
 	time.Sleep(5000 * time.Millisecond)
 
-	// Simulamos un fallo aleatorio
 	if rand.Float64() < 0.3 { // 30% de probabilidad de fallo
 		return domain.TradeExecution{
 			ExecutionID: user.UID,
@@ -62,16 +73,16 @@ func (a *BinanceTrader) executeTrade(ctx context.Context, user domain.User, sign
 		}, nil
 	}
 
-	// Si todo va bien, se ejecuta completamente
 	return domain.TradeExecution{
 		ExecutionID: user.UID,
 		ExecutedQty: amount,
 		Status:      "FILLED",
 		Error:       nil,
 	}, nil
+
 }
 
-func (a *BinanceTrader) worker(
+func (p *BinanceTrader) worker(
 	ctx context.Context,
 	id int,
 	taskCh <-chan task,
@@ -79,13 +90,24 @@ func (a *BinanceTrader) worker(
 	wg *sync.WaitGroup,
 ) {
 	defer wg.Done()
-	for t := range taskCh {
-		log.Printf("Worker %d: Procesando señal '%s' para user '%s'", id, t.signal.ID, t.user.UID)
-		tradeExecution, err := a.executeTrade(ctx, t.user, t.signal)
-		if err != nil {
-			log.Printf("Worker %d: Error al ejecutar orden para señal %s y user %s: %v", id, t.signal.ID, t.user.UID, err)
+	for {
+		select {
+		case <-ctx.Done(): // Si el contexto es cancelado, salimos del bucle
+			log.Printf("Worker %d: Contexto cancelado. Deteniendo operaciones.", id)
+			return
+		case t, ok := <-taskCh: // Leemos del canal de tareas
+			if !ok {
+				return // El canal se ha cerrado, salimos
+			}
+			log.Printf("Worker %d: Procesando señal '%s' para user '%s'", id, t.signal.ID, t.user.UID)
+
+			// Llamamos a la función de ejecución con el contexto
+			tradeExecution, err := p.executeTrade(ctx, t.user, t.signal)
+			if err != nil {
+				log.Printf("Worker %d: Error al ejecutar orden para señal %s y user %s: %v", id, t.signal.ID, t.user.UID, err)
+			}
+			resultsCh <- tradeExecution
 		}
-		resultsCh <- tradeExecution
 	}
 }
 
