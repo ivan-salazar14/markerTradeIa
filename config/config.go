@@ -5,12 +5,14 @@ import "time"
 
 // Config contiene todos los parámetros de configuración de la aplicación.
 type Config struct {
-	KafkaBrokers   []string
-	KafkaTopic     string
-	PostgresDSN    string
-	BinanceAPIKey  string
-	BinanceSecret  string
-	ProcessTimeout time.Duration
+	KafkaBrokers       []string
+	KafkaTopic         string
+	PostgresDSN        string
+	BinanceAPIKey      string
+	BinanceSecret      string
+	HyperliquidAddress string
+	HyperliquidKey     string
+	ProcessTimeout     time.Duration
 }
 
 // Load carga la configuración desde variables de entorno, archivos, etc.

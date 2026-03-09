@@ -25,19 +25,22 @@ import (
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/kafka"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/repository/database"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/repository/tradeAdapter"
-	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/trading/binance"
+	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/trading/hyperliquid"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/user"
 )
 
 func main() {
-	log.Println("Iniciando servicio de trading...")
+	log.Println("Iniciando servicio de trading con adaptador HyperLiquid...")
 	migrator := database.NewMigrator()
 	migrator.CreateStructures()
+
 	// Inicializar los adaptadores de salida
 	tradeRepository := tradeAdapter.NewTradeRepository()
-	binanceTrader := binance.NewBinanceTrader()
 	userAdapter := user.NewHttpUserService("http://localhost:8080/users")
-	tt := out.Trader(binanceTrader)
+
+	// Usar HyperLiquid Trader
+	trader := hyperliquid.NewHyperLiquidTrader("0xYOUR_ADDRESS", "0xYOUR_PRIVATE_KEY")
+	tt := out.Trader(trader)
 
 	tradingService := order.NewTradingService(userAdapter, tt, tradeRepository)
 
@@ -49,7 +52,7 @@ func main() {
 	defer cancel()
 
 	// Iniciar el consumidor de Kafka y esperar a que termine
-	log.Println("Servicio de trading iniciado. Esperando señales...")
+	log.Println("Servicio de trading iniciado. Esperando señales en Kafka...")
 	if err := kafkaConsumer.StartConsuming(ctx); err != nil {
 		log.Fatalf("Fallo al iniciar el consumidor de Kafka: %v", err)
 	}
