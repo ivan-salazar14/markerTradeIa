@@ -21,9 +21,13 @@ import (
 	"log"
 
 	"github.com/ivan-salazar14/markerTradeIa/config"
+	"github.com/ivan-salazar14/markerTradeIa/internal/application/services/auth"
 	"github.com/ivan-salazar14/markerTradeIa/internal/application/services/monitoring"
 	"github.com/ivan-salazar14/markerTradeIa/internal/application/usecases/order"
+	"github.com/ivan-salazar14/markerTradeIa/internal/domain"
 	"github.com/ivan-salazar14/markerTradeIa/internal/domain/ports/out"
+	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/api"
+	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/api/controllers"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/kafka"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/monitoring/revert"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/repository/database"
@@ -52,6 +56,14 @@ func main() {
 
 	tradingService := order.NewTradingService(userAdapter, tt, tradeRepository)
 
+	// Inicializar Auth Service
+	authSvc := auth.NewAuthService(domain.AuthConfig{
+		JWTSecret:      cfg.JWTSecret,
+		AccessExpiry:   cfg.AccessExpiry,
+		RefreshExpiry:  cfg.RefreshExpiry,
+		ServiceAPIKeys: cfg.ServiceAPIKeys,
+	})
+
 	// Inicializar y arrancar el monitoreo de pools de Uniswap (Revert Finance)
 	revertAdapter := revert.NewRevertAdapter(cfg.RevertBaseURL)
 	poolMonitoringService := monitoring.NewMonitoringService(
@@ -59,6 +71,11 @@ func main() {
 		cfg.RevertNetworks,
 		cfg.MonitoringInterval,
 	)
+
+	// Setup API
+	monController := controllers.NewMonitoringController(poolMonitoringService)
+	router := api.NewRouter(authSvc, monController)
+	handler := router.Init()
 
 	// Inicializar el adaptador de entrada de Kafka, inyectando el servicio de aplicación
 	kafkaConsumer := kafka.NewConsumerAdapter(tradingService)
@@ -69,6 +86,13 @@ func main() {
 
 	// Iniciar el monitoreo en segundo plano
 	go poolMonitoringService.Start(ctx)
+
+	// Iniciar Servidor HTTP
+	go func() {
+		if err := api.StartServer(8081, handler); err != nil {
+			log.Printf("HTTP Server error: %v", err)
+		}
+	}()
 
 	// Iniciar el consumidor de Kafka y esperar a que termine
 	log.Println("Servicio de trading iniciado. Esperando señales en Kafka...")

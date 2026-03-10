@@ -16,6 +16,10 @@ type Config struct {
 	RevertBaseURL      string
 	RevertNetworks     []string
 	MonitoringInterval time.Duration
+	JWTSecret          string
+	AccessExpiry       time.Duration
+	RefreshExpiry      time.Duration
+	ServiceAPIKeys     map[string]string
 }
 
 // Load carga la configuración desde variables de entorno, archivos, etc.
@@ -29,6 +33,10 @@ func Load() (*Config, error) {
 		RevertBaseURL:      "https://api.revert.finance/v1",
 		RevertNetworks:     []string{"mainnet", "polygon", "arbitrum", "optimism"},
 		MonitoringInterval: 1 * time.Minute,
+		JWTSecret:          "your-shhh-secret",
+		AccessExpiry:       15 * time.Minute,
+		RefreshExpiry:      24 * 7 * time.Hour,
+		ServiceAPIKeys:     map[string]string{"monitoring-service": "m2m-super-secret-key"},
 	}, nil
 }
 
