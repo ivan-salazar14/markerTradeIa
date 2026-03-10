@@ -20,9 +20,12 @@ import (
 	"context"
 	"log"
 
+	"github.com/ivan-salazar14/markerTradeIa/config"
+	"github.com/ivan-salazar14/markerTradeIa/internal/application/services/monitoring"
 	"github.com/ivan-salazar14/markerTradeIa/internal/application/usecases/order"
 	"github.com/ivan-salazar14/markerTradeIa/internal/domain/ports/out"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/kafka"
+	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/monitoring/revert"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/repository/database"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/repository/tradeAdapter"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/trading/hyperliquid"
@@ -30,6 +33,11 @@ import (
 )
 
 func main() {
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Error cargando configuración: %v", err)
+	}
+
 	log.Println("Iniciando servicio de trading con adaptador HyperLiquid...")
 	migrator := database.NewMigrator()
 	migrator.CreateStructures()
@@ -44,12 +52,23 @@ func main() {
 
 	tradingService := order.NewTradingService(userAdapter, tt, tradeRepository)
 
+	// Inicializar y arrancar el monitoreo de pools de Uniswap (Revert Finance)
+	revertAdapter := revert.NewRevertAdapter(cfg.RevertBaseURL)
+	poolMonitoringService := monitoring.NewMonitoringService(
+		revertAdapter,
+		cfg.RevertNetworks,
+		cfg.MonitoringInterval,
+	)
+
 	// Inicializar el adaptador de entrada de Kafka, inyectando el servicio de aplicación
 	kafkaConsumer := kafka.NewConsumerAdapter(tradingService)
 
 	// Contexto para manejar la cancelación del servicio
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Iniciar el monitoreo en segundo plano
+	go poolMonitoringService.Start(ctx)
 
 	// Iniciar el consumidor de Kafka y esperar a que termine
 	log.Println("Servicio de trading iniciado. Esperando señales en Kafka...")
