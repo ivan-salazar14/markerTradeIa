@@ -23,17 +23,11 @@ import (
 	"github.com/ivan-salazar14/markerTradeIa/config"
 	"github.com/ivan-salazar14/markerTradeIa/internal/application/services/auth"
 	"github.com/ivan-salazar14/markerTradeIa/internal/application/services/monitoring"
-	"github.com/ivan-salazar14/markerTradeIa/internal/application/usecases/order"
 	"github.com/ivan-salazar14/markerTradeIa/internal/domain"
-	"github.com/ivan-salazar14/markerTradeIa/internal/domain/ports/out"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/api"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/api/controllers"
-	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/kafka"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/monitoring/revert"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/repository/database"
-	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/repository/tradeAdapter"
-	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/trading/hyperliquid"
-	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/user"
 )
 
 func main() {
@@ -47,14 +41,14 @@ func main() {
 	migrator.CreateStructures()
 
 	// Inicializar los adaptadores de salida
-	tradeRepository := tradeAdapter.NewTradeRepository()
-	userAdapter := user.NewHttpUserService("http://localhost:8080/users")
+	//tradeRepository := tradeAdapter.NewTradeRepository()
+	//userAdapter := user.NewHttpUserService("http://localhost:8080/users")
 
 	// Usar HyperLiquid Trader
-	trader := hyperliquid.NewHyperLiquidTrader("0xYOUR_ADDRESS", "0xYOUR_PRIVATE_KEY")
-	tt := out.Trader(trader)
+	//trader := hyperliquid.NewHyperLiquidTrader("0xYOUR_ADDRESS", "0xYOUR_PRIVATE_KEY")
+	//tt := out.Trader(trader)
 
-	tradingService := order.NewTradingService(userAdapter, tt, tradeRepository)
+	//tradingService := order.NewTradingService(userAdapter, tt, tradeRepository)
 
 	// Inicializar Auth Service
 	authSvc := auth.NewAuthService(domain.AuthConfig{
@@ -74,11 +68,12 @@ func main() {
 
 	// Setup API
 	monController := controllers.NewMonitoringController(poolMonitoringService)
-	router := api.NewRouter(authSvc, monController)
+	hedgeController := controllers.NewHedgeController()
+	router := api.NewRouter(authSvc, monController, hedgeController)
 	handler := router.Init()
 
 	// Inicializar el adaptador de entrada de Kafka, inyectando el servicio de aplicación
-	kafkaConsumer := kafka.NewConsumerAdapter(tradingService)
+	//	kafkaConsumer := kafka.NewConsumerAdapter(tradingService)
 
 	// Contexto para manejar la cancelación del servicio
 	ctx, cancel := context.WithCancel(context.Background())
@@ -87,17 +82,16 @@ func main() {
 	// Iniciar el monitoreo en segundo plano
 	go poolMonitoringService.Start(ctx)
 
-	// Iniciar Servidor HTTP
-	go func() {
-		if err := api.StartServer(8081, handler); err != nil {
-			log.Printf("HTTP Server error: %v", err)
-		}
-	}()
+	// Iniciar Servidor HTTP (este comando bloquea el hilo principal para mantener la API viva)
+	log.Println("Servidor HTTP iniciado en puerto 8081. Presiona Ctrl+C para salir.")
+	if err := api.StartServer(8081, handler); err != nil {
+		log.Fatalf("HTTP Server error: %v", err)
+	}
 
 	// Iniciar el consumidor de Kafka y esperar a que termine
-	log.Println("Servicio de trading iniciado. Esperando señales en Kafka...")
-	if err := kafkaConsumer.StartConsuming(ctx); err != nil {
-		log.Fatalf("Fallo al iniciar el consumidor de Kafka: %v", err)
-	}
-	log.Println("Servicio de trading finalizado.")
+	/*	log.Println("Servicio de trading iniciado. Esperando señales en Kafka...")
+		if err := kafkaConsumer.StartConsuming(ctx); err != nil {
+			log.Fatalf("Fallo al iniciar el consumidor de Kafka: %v", err)
+		}
+		log.Println("Servicio de trading finalizado.")*/
 }

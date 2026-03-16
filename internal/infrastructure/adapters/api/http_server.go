@@ -14,13 +14,15 @@ import (
 type Router struct {
 	authController       *controllers.AuthController
 	monitoringController *controllers.MonitoringController
+	hedgeController      *controllers.HedgeController
 	authService          *auth.AuthService
 }
 
-func NewRouter(authSvc *auth.AuthService, monController *controllers.MonitoringController) *Router {
+func NewRouter(authSvc *auth.AuthService, monController *controllers.MonitoringController, hedgeController *controllers.HedgeController) *Router {
 	return &Router{
 		authController:       controllers.NewAuthController(authSvc),
 		monitoringController: monController,
+		hedgeController:      hedgeController,
 		authService:          authSvc,
 	}
 }
@@ -41,6 +43,19 @@ func (r *Router) Init() http.Handler {
 		mux.Use(apiMiddleware.AuthMiddleware(r.authService))
 
 		mux.Get("/api/v1/pools", r.monitoringController.GetPools)
+
+		// Hedge Strategy Routes
+		mux.Route("/api/hedge", func(mux chi.Router) {
+			mux.Get("/strategy", r.hedgeController.GetStrategy)
+			mux.Get("/stats", r.hedgeController.GetStats)
+			mux.Get("/wallets", r.hedgeController.GetWallets)
+			mux.Post("/wallets/connect", r.hedgeController.ConnectWallet)
+			mux.Post("/wallets/disconnect", r.hedgeController.DisconnectWallet)
+			mux.Get("/delta", r.hedgeController.GetDelta)
+			mux.Get("/permissions", r.hedgeController.GetPermissions)
+			mux.Get("/safe-mode", r.hedgeController.GetSafeMode)
+			mux.Get("/sync-flow", r.hedgeController.GetSyncFlow)
+		})
 	})
 
 	return mux
