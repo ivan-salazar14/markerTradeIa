@@ -51,6 +51,7 @@ func (r *Router) Init() http.Handler {
 			mux.Get("/wallets", r.hedgeController.GetWallets)
 			mux.Post("/wallets/connect", r.hedgeController.ConnectWallet)
 			mux.Post("/wallets/disconnect", r.hedgeController.DisconnectWallet)
+			mux.Post("/sync", r.hedgeController.SyncNow)
 			mux.Get("/delta", r.hedgeController.GetDelta)
 			mux.Get("/permissions", r.hedgeController.GetPermissions)
 			mux.Get("/safe-mode", r.hedgeController.GetSafeMode)

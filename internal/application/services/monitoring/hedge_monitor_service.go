@@ -33,52 +33,43 @@ func NewHedgeMonitorService(
 	}
 }
 
-// Start inits the Event-Driven + Polling hybrid monitoring
+// Start inits the Event-Driven + Polling hybrid monitoring.
 func (s *HedgeMonitorService) Start(ctx context.Context) {
-	log.Printf("[HedgeMonitor] Iniciando background service de cobertura para %s (Híbrido Event-Driven & Polling)", s.asset)
+	log.Printf("[HedgeMonitor] Iniciando background service de cobertura para %s (hibrido Event-Driven & Polling)", s.asset)
 
-	// Create channels for WebSocket events
 	priceCh := make(chan float64, 100)
 	sizeCh := make(chan float64, 100)
 
-	// Subscribirse a Hyperliquid (Push Mode)
 	if err := s.hyperliquidPort.SubscribeToMarketUpdates(ctx, s.asset, priceCh); err != nil {
-		log.Printf("[HedgeMonitor] Error subscribiéndose a Market Updates: %v", err)
+		log.Printf("[HedgeMonitor] Error suscribiendose a Market Updates: %v", err)
 	}
 
 	if err := s.hyperliquidPort.SubscribeToUserEvents(ctx, s.hlAddress, sizeCh); err != nil {
-		log.Printf("[HedgeMonitor] Error subscribiéndose a User Events: %v", err)
+		log.Printf("[HedgeMonitor] Error suscribiendose a User Events: %v", err)
 	}
 
-	// Ticker para Polling de Reconciliación (cada 30 seg)
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			log.Println("[HedgeMonitor] Deteniendo servicio (Cancelado)...")
+			log.Println("[HedgeMonitor] Deteniendo servicio...")
 			return
-			
 		case <-ticker.C:
-			// Polling (Pull): Forzamos sincronización absóluta por seguridad
-			log.Println("[HedgeMonitor/Polling] Ejecutando Job de reconciliación...")
-			if err := s.walletSync.SyncHedge(ctx, s.walletAddress, s.hlAddress, s.asset); err != nil {
+			log.Println("[HedgeMonitor/Polling] Ejecutando job de reconciliacion...")
+			if _, err := s.walletSync.SyncHedge(ctx, s.walletAddress, s.hlAddress, s.asset); err != nil {
 				log.Printf("[HedgeMonitor/Polling] Error durante syncHedge: %v", err)
 			}
-
 		case price := <-priceCh:
-			// Real-time Event (Push): Orderbook update detectado
-			log.Printf("[HedgeMonitor/Events] Push Event -> Variación L2 Detectada (Precio Simul/Mark: %f). Reevaluando Delta...", price)
-			if err := s.walletSync.SyncHedge(ctx, s.walletAddress, s.hlAddress, s.asset); err != nil {
-				log.Printf("[HedgeMonitor] Error durante syncHedge por evento: %v", err)
+			log.Printf("[HedgeMonitor/Events] Cambio de mercado detectado: %f. Reevaluando delta...", price)
+			if _, err := s.walletSync.SyncHedge(ctx, s.walletAddress, s.hlAddress, s.asset); err != nil {
+				log.Printf("[HedgeMonitor/Events] Error durante syncHedge por evento de mercado: %v", err)
 			}
-
 		case newSize := <-sizeCh:
-			// Real-time Event (Push): Short Position update detectado
-			log.Printf("[HedgeMonitor/Events] Push Event -> Reflejo en cuenta detectado. Nuevo Short: %f. Reevaluando Delta...", newSize)
-			if err := s.walletSync.SyncHedge(ctx, s.walletAddress, s.hlAddress, s.asset); err != nil {
-				log.Printf("[HedgeMonitor] Error durante syncHedge: %v", err)
+			log.Printf("[HedgeMonitor/Events] Cambio de posicion detectado: %f. Reevaluando delta...", newSize)
+			if _, err := s.walletSync.SyncHedge(ctx, s.walletAddress, s.hlAddress, s.asset); err != nil {
+				log.Printf("[HedgeMonitor/Events] Error durante syncHedge por evento de usuario: %v", err)
 			}
 		}
 	}

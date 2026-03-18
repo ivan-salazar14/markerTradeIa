@@ -1,7 +1,8 @@
 package database
 
 import (
-	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/repository/tradeAdapter/models"
+	hedgeModels "github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/repository/hedgeAdapter/models"
+	tradeModels "github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/repository/tradeAdapter/models"
 	"gorm.io/gorm"
 )
 
@@ -17,7 +18,11 @@ func NewMigrator() *Migrator {
 }
 
 func (m *Migrator) CreateStructures() error {
-	// Aquí se pueden agregar más modelos según sea necesario
-
-	return m.DB.AutoMigrate(&models.Trade{})
+	return m.DB.AutoMigrate(
+		&tradeModels.Trade{},
+		&hedgeModels.WalletConnection{},
+		&hedgeModels.HedgeState{},
+		&hedgeModels.HedgeAction{},
+		&hedgeModels.SyncEvent{},
+	)
 }

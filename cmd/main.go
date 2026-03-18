@@ -1,61 +1,38 @@
-// Este archivo representa la estructura completa del servicio de trading en Go
-
-// go.mod
-// Módulo para la gestión de dependencias.
-// En un proyecto real, se agregarían las dependencias de Kafka, PostgreSQL, etc.
-//
-// go.mod
-// module MarkerTradeia
-// go 1.25
-
-// go.sum
-// Archivo de suma de verificación de dependencias.
-//
-
-// file: cmd/main.go
-// Punto de entrada de la aplicación. Aquí se "cablean" todas las dependencias.
 package main
 
 import (
 	"context"
 	"log"
+	"strings"
 
 	"github.com/ivan-salazar14/markerTradeIa/config"
 	"github.com/ivan-salazar14/markerTradeIa/internal/application/services/auth"
 	"github.com/ivan-salazar14/markerTradeIa/internal/application/services/monitoring"
+	"github.com/ivan-salazar14/markerTradeIa/internal/application/usecases/hedge"
+	"github.com/ivan-salazar14/markerTradeIa/internal/application/usecases/hedge/strategies"
 	"github.com/ivan-salazar14/markerTradeIa/internal/domain"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/api"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/api/controllers"
-	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/monitoring/revert"
-	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/repository/database"
-
-	"github.com/ivan-salazar14/markerTradeIa/internal/application/usecases/hedge"
-	"github.com/ivan-salazar14/markerTradeIa/internal/application/usecases/hedge/strategies"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/dex/uniswap"
+	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/monitoring/revert"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/perps"
+	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/repository/database"
+	hedgeAdapter "github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/repository/hedgeAdapter"
 )
 
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("Error cargando configuración: %v", err)
+		log.Fatalf("Error cargando configuracion: %v", err)
 	}
 
-	log.Println("Iniciando servicio de trading con adaptador HyperLiquid...")
+	log.Println("Iniciando servicio hedge delta-neutral...")
+
 	migrator := database.NewMigrator()
-	migrator.CreateStructures()
+	if err := migrator.CreateStructures(); err != nil {
+		log.Fatalf("Error creando estructuras de base de datos: %v", err)
+	}
 
-	// Inicializar los adaptadores de salida
-	//tradeRepository := tradeAdapter.NewTradeRepository()
-	//userAdapter := user.NewHttpUserService("http://localhost:8080/users")
-
-	// Usar HyperLiquid Trader
-	//trader := hyperliquid.NewHyperLiquidTrader("0xYOUR_ADDRESS", "0xYOUR_PRIVATE_KEY")
-	//tt := out.Trader(trader)
-
-	//tradingService := order.NewTradingService(userAdapter, tt, tradeRepository)
-
-	// Inicializar Auth Service
 	authSvc := auth.NewAuthService(domain.AuthConfig{
 		JWTSecret:      cfg.JWTSecret,
 		AccessExpiry:   cfg.AccessExpiry,
@@ -63,7 +40,6 @@ func main() {
 		ServiceAPIKeys: cfg.ServiceAPIKeys,
 	})
 
-	// Inicializar y arrancar el monitoreo de pools de Uniswap (Revert Finance)
 	revertAdapter := revert.NewRevertAdapter(cfg.RevertBaseURL)
 	poolMonitoringService := monitoring.NewMonitoringService(
 		revertAdapter,
@@ -71,53 +47,64 @@ func main() {
 		cfg.MonitoringInterval,
 	)
 
-	// Contexto para manejar la cancelación del servicio
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Inicializar dependencias del sistema Hedge Delta-Neutral
 	walletAdapter, err := uniswap.NewUniswapV3WalletAdapter(
-		"https://arb1.arbitrum.io/rpc", 
-		"0xC36442b4a4522E871399CD717aBDD847Ab11FE88",
+		cfg.EVMRPCURL,
+		cfg.UniswapPositionManager,
 	)
 	if err != nil {
-		log.Fatalf("Error inicializando Uniswap Adapter: %v", err)
+		log.Fatalf("Error inicializando Uniswap adapter: %v", err)
 	}
 
 	hyperliquidAdapter := perps.NewHyperliquidAdapter()
-	_ = hyperliquidAdapter.Connect(ctx, "private-key-mock")
+	if err := hyperliquidAdapter.Connect(ctx, cfg.HyperliquidKey); err != nil {
+		log.Fatalf("Error inicializando Hyperliquid adapter: %v", err)
+	}
 
-	deltaStrategy := strategies.NewBasicDeltaNeutralStrategy(0.01) // 0.01 tolerance
-	walletSyncUseCase := hedge.NewWalletSyncUseCase(walletAdapter, hyperliquidAdapter, deltaStrategy)
+	hedgeRepository := hedgeAdapter.NewHedgeRepository()
+	deltaStrategy := strategies.NewBasicDeltaNeutralStrategy(0.01)
+	walletSyncUseCase := hedge.NewWalletSyncUseCase(
+		walletAdapter,
+		hyperliquidAdapter,
+		deltaStrategy,
+		hedgeRepository,
+		cfg.SafeMode,
+		cfg.DryRun,
+	)
+
+	defaultAsset := "ETH"
+	if strings.EqualFold(defaultAsset, "ETH") {
+		defaultAsset = "ETH"
+	}
+	defaultWallet := "0xMockLPWallet123"
+	defaultHLWallet := cfg.HyperliquidAddress
 
 	hedgeMonitorSvc := monitoring.NewHedgeMonitorService(
 		hyperliquidAdapter,
 		walletSyncUseCase,
-		"ETH", // Use ETH to match l2Book available coins on Mainnet Hyperliquid
-		"0xMockLPWallet123",
-		"0xMockHLWallet456",
+		defaultAsset,
+		defaultWallet,
+		defaultHLWallet,
 	)
 
-	// Setup API
 	monController := controllers.NewMonitoringController(poolMonitoringService)
-	hedgeController := controllers.NewHedgeController(walletSyncUseCase)
+	hedgeController := controllers.NewHedgeController(
+		walletSyncUseCase,
+		defaultAsset,
+		defaultWallet,
+		defaultHLWallet,
+		cfg.SafeMode,
+	)
 	router := api.NewRouter(authSvc, monController, hedgeController)
 	handler := router.Init()
 
-	// Iniciar monitoreos en background
 	go poolMonitoringService.Start(ctx)
 	go hedgeMonitorSvc.Start(ctx)
 
-	// Iniciar Servidor HTTP (este comando bloquea el hilo principal para mantener la API viva)
-	log.Println("Servidor HTTP iniciado en puerto 8081. Presiona Ctrl+C para salir.")
-	if err := api.StartServer(8081, handler); err != nil {
-		log.Fatalf("HTTP Server error: %v", err)
+	log.Printf("Servidor HTTP iniciado en puerto %d. Presiona Ctrl+C para salir.", cfg.Port)
+	if err := api.StartServer(cfg.Port, handler); err != nil {
+		log.Fatalf("HTTP server error: %v", err)
 	}
-
-	// Iniciar el consumidor de Kafka y esperar a que termine
-	/*	log.Println("Servicio de trading iniciado. Esperando señales en Kafka...")
-		if err := kafkaConsumer.StartConsuming(ctx); err != nil {
-			log.Fatalf("Fallo al iniciar el consumidor de Kafka: %v", err)
-		}
-		log.Println("Servicio de trading finalizado.")*/
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/ivan-salazar14/markerTradeIa/internal/application/usecases/hedge"
@@ -12,19 +13,27 @@ import (
 
 type HedgeController struct {
 	walletSyncUseCase *hedge.WalletSyncUseCase
+	defaultAsset      string
+	defaultWallet     string
+	defaultHLWallet   string
+	safeMode          bool
 }
 
-func NewHedgeController(walletSyncUseCase *hedge.WalletSyncUseCase) *HedgeController {
+func NewHedgeController(walletSyncUseCase *hedge.WalletSyncUseCase, defaultAsset string, defaultWallet string, defaultHLWallet string, safeMode bool) *HedgeController {
 	return &HedgeController{
 		walletSyncUseCase: walletSyncUseCase,
+		defaultAsset:      defaultAsset,
+		defaultWallet:     defaultWallet,
+		defaultHLWallet:   defaultHLWallet,
+		safeMode:          safeMode,
 	}
 }
 
 func (c *HedgeController) GetStrategy(w http.ResponseWriter, r *http.Request) {
 	strategy := domain.HedgeStrategy{
-		StrategyID:  "TW-8892",
-		Name:        "Estrategia Dual-Wallet (LP + Hedge)",
-		Description: "Separe su capital de inversión del capital de cobertura con seguridad aislada.",
+		StrategyID:  "delta-neutral-mvp",
+		Name:        "Estrategia Delta Neutral",
+		Description: "Sincroniza la exposicion LP con una cobertura short en Hyperliquid.",
 		Status:      "active",
 		IsSynced:    true,
 		CreatedAt:   time.Date(2024, 1, 15, 10, 0, 0, 0, time.UTC),
@@ -33,58 +42,34 @@ func (c *HedgeController) GetStrategy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *HedgeController) GetStats(w http.ResponseWriter, r *http.Request) {
+	result, err := c.walletSyncUseCase.GetLatestDelta(r.Context(), c.assetFromRequest(r))
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to load stats: %v", err), http.StatusInternalServerError)
+		return
+	}
+
 	stats := domain.HedgeStats{
-		APR: domain.TrendStats{
-			Value:          113.82,
-			Trend:          12.4,
-			TrendDirection: "up",
-		},
-		FeesAccumulated: domain.CurrencyStats{
-			Value:          10.71,
-			Currency:       "USD",
-			Trend:          5.2,
-			TrendDirection: "up",
-		},
-		Delta: domain.UnitStats{
-			Value: 0.0000,
-			Unit:  "ETH",
-		},
-		HedgeEfficiency: domain.TrendStats{
-			Value:          99.8,
-			Trend:          0.2,
-			TrendDirection: "up",
-		},
+		APR:             domain.TrendStats{Value: 0, Trend: 0, TrendDirection: "flat"},
+		FeesAccumulated: domain.CurrencyStats{Value: 0, Currency: "USD", Trend: 0, TrendDirection: "flat"},
+		Delta:           domain.UnitStats{Value: 0, Unit: c.assetFromRequest(r)},
+		HedgeEfficiency: domain.TrendStats{Value: 0, Trend: 0, TrendDirection: "flat"},
+	}
+	if result != nil {
+		stats.Delta.Value = result.NetExposure
+		if result.Status == "synced" {
+			stats.HedgeEfficiency.Value = 100
+		}
 	}
 	c.json(w, stats)
 }
 
 func (c *HedgeController) GetWallets(w http.ResponseWriter, r *http.Request) {
-	addrA := "0x71C7656ec7ab88b098defB751B7401B5f6d4921"
-	addrShort := "0x71C...4921"
-	
-	resp := domain.WalletsResponse{
-		WalletA: domain.WalletInfo{
-			Type:            "uniswap_lp",
-			Name:            "Wallet A (Uniswap LP)",
-			Description:     "Gestiona su posición en Uniswap V3 Arbitrum via Permit2.",
-			Connected:       true,
-			Address:         &addrShort,
-			FullAddress:     &addrA,
-			Permissions:     []string{"add_liquidity", "collect_fees"},
-			PermissionsNote: "Permisos de solo gestión de liquidez aprobados",
-		},
-		WalletB: domain.WalletInfo{
-			Type:            "hyperliquid_trade",
-			Name:            "Wallet B (Hyperliquid Trade)",
-			Description:     "Dedicada a la cobertura (Short). Utiliza un Signing Agent.",
-			Connected:       false,
-			Address:         nil,
-			FullAddress:     nil,
-			Permissions:     []string{"adjust_short"},
-			PermissionsNote: "El bot no tiene permisos de retiro",
-		},
+	wallets, err := c.walletSyncUseCase.GetWalletConnections(r.Context())
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to load wallets: %v", err), http.StatusInternalServerError)
+		return
 	}
-	c.json(w, resp)
+	c.json(w, wallets)
 }
 
 func (c *HedgeController) ConnectWallet(w http.ResponseWriter, r *http.Request) {
@@ -94,15 +79,17 @@ func (c *HedgeController) ConnectWallet(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Fetch real data for the wallet
 	walletData, err := c.walletSyncUseCase.ConnectAndFetchWallet(r.Context(), req.Address)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to connect wallet: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// For legacy compatibility, we return success and message, 
-	// but we could also return the walletData here.
+	if err := c.walletSyncUseCase.RegisterWallet(r.Context(), req.WalletType, req.Address); err != nil {
+		http.Error(w, fmt.Sprintf("failed to register wallet: %v", err), http.StatusInternalServerError)
+		return
+	}
+
 	resp := struct {
 		domain.WalletActionResponse
 		Data domain.WalletData `json:"data"`
@@ -134,22 +121,71 @@ func (c *HedgeController) DisconnectWallet(w http.ResponseWriter, r *http.Reques
 	c.json(w, resp)
 }
 
+func (c *HedgeController) SyncNow(w http.ResponseWriter, r *http.Request) {
+	var req domain.ManualSyncRequest
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	asset := strings.TrimSpace(req.Asset)
+	if asset == "" {
+		asset = c.defaultAsset
+	}
+	walletAddress := strings.TrimSpace(req.WalletAddress)
+	if walletAddress == "" {
+		walletAddress = c.defaultWallet
+	}
+	hlAddress := strings.TrimSpace(req.HyperliquidAddress)
+	if hlAddress == "" {
+		hlAddress = c.defaultHLWallet
+	}
+
+	result, err := c.walletSyncUseCase.SyncHedge(r.Context(), walletAddress, hlAddress, asset)
+	if err != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		c.json(w, result)
+		return
+	}
+	c.json(w, result)
+}
+
 func (c *HedgeController) GetDelta(w http.ResponseWriter, r *http.Request) {
+	result, err := c.walletSyncUseCase.GetLatestDelta(r.Context(), c.assetFromRequest(r))
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to load delta: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if result == nil {
+		w.WriteHeader(http.StatusNotFound)
+		c.json(w, map[string]string{"error": "no hedge state available yet"})
+		return
+	}
+
+	status := "neutral"
+	if result.Status == "error" {
+		status = "error"
+	}
+	if result.NetExposure > 0 {
+		status = "long_bias"
+	}
+	if result.NetExposure < 0 {
+		status = "short_bias"
+	}
+	if result.Status == "synced" {
+		status = "neutral"
+	}
+
 	delta := domain.DeltaSync{
 		PoolExposure: domain.ExposureInfo{
-			Value:      0.2522,
-			Unit:       "WETH",
-			Percentage: 65,
+			Value: result.PoolExposure,
+			Unit:  result.Asset,
 		},
 		HedgeExposure: domain.ExposureInfo{
-			Value:      -0.2522,
-			Unit:       "WETH",
-			Percentage: 65,
+			Value: -result.ShortExposure,
+			Unit:  result.Asset,
 		},
-		NetExposure: 0.0000,
-		Status:      "neutral",
-		IsLive:      true,
-		LastSync:    time.Now(),
+		NetExposure: result.NetExposure,
+		Status:      status,
+		IsLive:      result.Status != "error",
+		LastSync:    result.LastSync,
 	}
 	c.json(w, delta)
 }
@@ -158,48 +194,9 @@ func (c *HedgeController) GetPermissions(w http.ResponseWriter, r *http.Request)
 	resp := domain.PermissionsResponse{
 		Permissions: []domain.HedgePermission{
 			{
-				Action: "Añadir Liquidez",
-				WalletA: domain.PermissionDetail{
-					Required: "Firma Requerida",
-					Type:     "user_signature",
-				},
-				WalletB: domain.PermissionDetail{
-					Required: "No aplica",
-					Type:     "not_applicable",
-				},
-			},
-			{
-				Action: "Ajustar Short",
-				WalletA: domain.PermissionDetail{
-					Required: "No aplica",
-					Type:     "not_applicable",
-				},
-				WalletB: domain.PermissionDetail{
-					Required: "Automático (Agente)",
-					Type:     "agent_authorized",
-				},
-			},
-			{
-				Action: "Retirar Capital",
-				WalletA: domain.PermissionDetail{
-					Required: "Solo Usuario",
-					Type:     "user_only",
-				},
-				WalletB: domain.PermissionDetail{
-					Required: "Solo Usuario",
-					Type:     "user_only",
-				},
-			},
-			{
-				Action: "Cobrar Fees",
-				WalletA: domain.PermissionDetail{
-					Required: "Bot (Autorizado)",
-					Type:     "bot_authorized",
-				},
-				WalletB: domain.PermissionDetail{
-					Required: "No aplica",
-					Type:     "not_applicable",
-				},
+				Action:  "Ajustar Short",
+				WalletA: domain.PermissionDetail{Required: "No aplica", Type: "not_applicable"},
+				WalletB: domain.PermissionDetail{Required: "Automatizado", Type: "agent_authorized"},
 			},
 		},
 	}
@@ -208,32 +205,38 @@ func (c *HedgeController) GetPermissions(w http.ResponseWriter, r *http.Request)
 
 func (c *HedgeController) GetSafeMode(w http.ResponseWriter, r *http.Request) {
 	status := domain.SafeModeStatus{
-		IsActive:      false,
+		IsActive:      c.safeMode,
 		TriggerReason: nil,
 		ActivatedAt:   nil,
-		Message:       "Sistema operando normalmente",
+		Message:       "Safe mode configurado desde variables de entorno",
 	}
 	c.json(w, status)
 }
 
 func (c *HedgeController) GetSyncFlow(w http.ResponseWriter, r *http.Request) {
 	flow := domain.SyncFlow{
-		CurrentStep: 6,
+		CurrentStep: 4,
 		Steps: []domain.SyncFlowStep{
-			{Step: 1, Title: "Monitoreo Constante", Description: "WebSockets detectan evento de nuevo precio ETH ($2,055).", Icon: "🌐"},
-			{Step: 2, Title: "Cálculo de Delta", Description: "Watcher service calcula WETH en Wallet A (0.2522).", Icon: "🧮"},
-			{Step: 3, Title: "Verificación de Cobertura", Description: "Consulta posición Short actual en Wallet B (-0.2450).", Icon: "🛡️"},
-			{Step: 4, Title: "Detección de Drift", Description: "Diferencia detectada de 0.0072 ETH.", Icon: "⚠️"},
-			{Step: 5, Title: "Ajuste de Cobertura", Description: "Ejecución Market Short en Wallet B por 0.0072 ETH.", Icon: "⚡"},
-			{Step: 6, Title: "Notificación", Description: "Hedge Sincronizado (Delta 0.0) actualizado en UI.", Icon: "✅"},
+			{Step: 1, Title: "Lectura LP", Description: "Lee exposicion LP de la wallet conectada.", Icon: "1"},
+			{Step: 2, Title: "Lectura Short", Description: "Consulta la posicion short actual en Hyperliquid.", Icon: "2"},
+			{Step: 3, Title: "Evaluacion", Description: "La estrategia decide si hace falta ajustar la cobertura.", Icon: "3"},
+			{Step: 4, Title: "Persistencia", Description: "Guarda el resultado del sync y lo expone por API.", Icon: "4"},
 		},
-		Price:   2055.00,
+		Price:   0,
 		EthUnit: "USD",
 	}
 	c.json(w, flow)
 }
 
+func (c *HedgeController) assetFromRequest(r *http.Request) string {
+	asset := strings.TrimSpace(r.URL.Query().Get("asset"))
+	if asset == "" {
+		return c.defaultAsset
+	}
+	return asset
+}
+
 func (c *HedgeController) json(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(data)
+	_ = json.NewEncoder(w).Encode(data)
 }

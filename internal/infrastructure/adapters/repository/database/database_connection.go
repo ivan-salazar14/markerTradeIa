@@ -1,6 +1,9 @@
 package database
 
 import (
+	"fmt"
+	"os"
+	"strings"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -16,20 +19,27 @@ var (
 func GetInstance() *gorm.DB {
 	if instance == nil {
 		once.Do(func() {
-			instance, _ = NewConnectionDB()
-			logrus.Info("Conexión a la base de datos establecida.")
+			db, err := NewConnectionDB()
+			if err != nil {
+				logrus.Fatalf("Error al conectar a la base de datos: %v", err)
+			}
+			instance = db
+			logrus.Info("Conexion a la base de datos establecida.")
 		})
 	} else {
-		logrus.Printf("Reutilizando la conexión a la base de datos existente.\n")
+		logrus.Println("Reutilizando la conexion a la base de datos existente.")
 	}
 	return instance
 }
 
 func NewConnectionDB() (*gorm.DB, error) {
-	// Aquí se debe inicializar la conexión a la base de datos PostgreSQL
-	db, err := gorm.Open(postgres.Open("host=localhost user=postgres dbname=market_data password=postgres port=5432 sslmode=disable"), &gorm.Config{})
+	dsn := strings.TrimSpace(os.Getenv("DATABASE_URL"))
+	if dsn == "" {
+		return nil, fmt.Errorf("DATABASE_URL is required")
+	}
+
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
-		logrus.Errorf("Error al conectar a la base de datos: %v", err)
 		return nil, err
 	}
 	return db, nil
