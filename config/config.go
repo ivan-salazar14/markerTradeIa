@@ -29,6 +29,8 @@ type Config struct {
 	ServiceAPIKeys         map[string]string
 	EVMRPCURL              string
 	UniswapPositionManager string
+	DefaultHedgeAsset      string
+	DefaultLPWalletAddress string
 	SafeMode               bool
 	DryRun                 bool
 }
@@ -54,6 +56,8 @@ func Load() (*Config, error) {
 		ServiceAPIKeys:         map[string]string{"monitoring-service": getEnv("MONITORING_SERVICE_API_KEY", "m2m-super-secret-key")},
 		EVMRPCURL:              getEnv("EVM_RPC_URL", ""),
 		UniswapPositionManager: getEnv("UNISWAP_POSITION_MANAGER", ""),
+		DefaultHedgeAsset:      getEnv("DEFAULT_HEDGE_ASSET", "ETH"),
+		DefaultLPWalletAddress: getEnv("DEFAULT_LP_WALLET_ADDRESS", ""),
 		SafeMode:               getEnvAsBool("SAFE_MODE", true),
 		DryRun:                 getEnvAsBool("DRY_RUN", true),
 	}
@@ -61,12 +65,13 @@ func Load() (*Config, error) {
 
 	var missing []string
 	for key, value := range map[string]string{
-		"DATABASE_URL":             cfg.DatabaseURL,
-		"JWT_SECRET":               cfg.JWTSecret,
-		"EVM_RPC_URL":              cfg.EVMRPCURL,
-		"UNISWAP_POSITION_MANAGER": cfg.UniswapPositionManager,
-		"HYPERLIQUID_PRIVATE_KEY":  cfg.HyperliquidKey,
-		"HYPERLIQUID_ADDRESS":      cfg.HyperliquidAddress,
+		"DATABASE_URL":              cfg.DatabaseURL,
+		"JWT_SECRET":                cfg.JWTSecret,
+		"EVM_RPC_URL":               cfg.EVMRPCURL,
+		"UNISWAP_POSITION_MANAGER":  cfg.UniswapPositionManager,
+		"HYPERLIQUID_PRIVATE_KEY":   cfg.HyperliquidKey,
+		"HYPERLIQUID_ADDRESS":       cfg.HyperliquidAddress,
+		"DEFAULT_LP_WALLET_ADDRESS": cfg.DefaultLPWalletAddress,
 	} {
 		if strings.TrimSpace(value) == "" {
 			missing = append(missing, key)

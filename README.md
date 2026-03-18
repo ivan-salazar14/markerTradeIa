@@ -1,85 +1,81 @@
-
 # MarkerTradeIa
 
-MarkerTradeIa is a professional, concurrent trading platform written in Go, designed for high-throughput processing of trading signals, robust trade execution on Binance, and reliable persistence of trade results in PostgreSQL. The system leverages Kafka for scalable, event-driven communication and is architected for extensibility and maintainability.
+MarkerTradeIa is a Go backend for monitoring and synchronizing a delta-neutral crypto strategy. The current MVP focuses on measuring LP exposure from an EVM wallet, comparing it against a hedge on Hyperliquid, and exposing that state through an authenticated HTTP API.
 
-## Key Features & Concurrency Model
+## Current MVP Scope
 
-- **Concurrent Batch Processing:** Utilizes Go's goroutines and channels to process trading signals in parallel, maximizing throughput and responsiveness.
-- **Fan-Out/Fan-In Pattern:** Signals are distributed (fan-out) to a pool of worker goroutines for trade execution, and results are consolidated (fan-in) for summary and persistence.
-- **Batching & Timeouts:** Signals are grouped into batches for efficient processing, with configurable batch size and timeout to ensure timely execution even under low load.
-- **Graceful Shutdown:** The system detects channel closure and context cancellation, ensuring all goroutines terminate cleanly and all batches are processed before shutdown.
-- **Randomized Simulation:** For testing, the system generates trading signals with randomized price and type, simulating real-world market conditions and concurrency scenarios.
+- Connect and inspect an LP wallet.
+- Read active pool exposure from the wallet adapter.
+- Read the current short exposure from the Hyperliquid adapter.
+- Evaluate hedge drift through a strategy use case.
+- Persist hedge states, actions, sync events, and wallet connections in PostgreSQL.
+- Expose hedge and monitoring endpoints through HTTP.
+- Run background monitoring for liquidity pools and hedge reconciliation.
 
-## Architecture Overview
+## Architecture
 
-- **Kafka Consumer:** Receives and batches trading signals from the event stream.
-- **Trading Service:** Validates, executes, and persists trades, orchestrating the full trade lifecycle.
-- **Binance Adapter:** Handles trade execution logic, simulating partial fills, failures, and execution times.
-- **Postgres Adapter:** Persists trade execution results for audit and analytics.
+- `cmd/main.go`: dependency wiring and application startup.
+- `config/config.go`: environment-based configuration.
+- `internal/application/usecases/hedge/`: hedge synchronization use case and strategy.
+- `internal/application/services/monitoring/`: background monitoring and cached pool snapshots.
+- `internal/infrastructure/adapters/dex/uniswap/`: EVM wallet adapter for LP exposure.
+- `internal/infrastructure/adapters/perps/`: Hyperliquid adapter.
+- `internal/infrastructure/adapters/repository/hedgeAdapter/`: persistence for hedge state.
+- `internal/infrastructure/adapters/api/`: HTTP server, controllers, and middleware.
 
-## Concurrency & Patterns
+## Required Environment Variables
 
-The core of MarkerTradeIa's performance is its use of Go concurrency patterns:
+Use [.env.example](C:\Users\Asus\Documents\GitHub\makerTradeia\.env.example) as the base:
 
-- **Fan-Out:** A configurable number of worker goroutines pull signals from a channel and execute trades in parallel.
-- **Fan-In:** Results from all workers are collected into a single channel, where they are summarized and persisted.
-- **Batching:** Signals are accumulated into batches either by reaching a batch size or after a timeout, ensuring both efficiency and responsiveness.
-- **Channel Closure Handling:** All goroutines detect channel closure and process any remaining signals, preventing deadlocks and resource leaks.
+- `PORT`
+- `DATABASE_URL`
+- `JWT_SECRET`
+- `MONITORING_SERVICE_API_KEY`
+- `EVM_RPC_URL`
+- `UNISWAP_POSITION_MANAGER`
+- `DEFAULT_HEDGE_ASSET`
+- `DEFAULT_LP_WALLET_ADDRESS`
+- `HYPERLIQUID_PRIVATE_KEY`
+- `HYPERLIQUID_ADDRESS`
 
-## Recent Improvements
+Useful operational flags:
 
-- **Deadlock Prevention:** Main now waits for all processing to finish, avoiding infinite blocking and ensuring clean shutdown.
-- **Randomized Signal Generation:** Test signals now have random price and type, improving simulation realism.
-- **Robust Channel Handling:** All goroutines properly detect and handle closed channels, ensuring no panics or lost signals.
-- **Summary Reporting:** Trade execution results are summarized in real time, providing clear feedback on batch outcomes.
-- **Professional Logging:** All key events and errors are logged with context for easier debugging and monitoring.
+- `SAFE_MODE=true`
+- `DRY_RUN=true`
 
-## Flow Diagram
+## API Endpoints
 
-```mermaid
-flowchart TD
-    A[Kafka Consumer EventReceiver] --> B[Trading Service]
-    B --> C[Binance Adapter]
-    B --> D[Postgres Adapter]
-    C --> B
-    D --> B
-```
+Public:
 
-## Main Components
+- `POST /auth/login`
+- `POST /auth/refresh`
 
-- [`cmd/main.go`](cmd/main.go): Application entrypoint, dependency injection, and lifecycle management.
-- [`internal/infrastructure/adapters/kafka/consumer.go`](internal/infrastructure/adapters/kafka/consumer.go): Kafka consumer and batcher.
-- [`internal/application/usecases/order/`](internal/application/usecases/order/): Trading service orchestration.
-- [`internal/infrastructure/adapters/trading/binance/trader.go`](internal/infrastructure/adapters/trading/binance/trader.go): Binance trade execution logic and simulation.
-- [`internal/infrastructure/adapters/repository/tradeAdapter/trade_repository.go`](internal/infrastructure/adapters/repository/tradeAdapter/trade_repository.go): PostgreSQL persistence.
-- [`internal/domain/trading_signal.go`](internal/domain/trading_signal.go): Trading signal domain model.
-- [`internal/domain/trade_execution.go`](internal/domain/trade_execution.go): Trade execution domain model.
+Protected:
 
-## Example Signal
+- `GET /api/v1/pools`
+- `GET /api/hedge/strategy`
+- `GET /api/hedge/stats`
+- `GET /api/hedge/wallets`
+- `POST /api/hedge/wallets/connect`
+- `POST /api/hedge/wallets/disconnect`
+- `POST /api/hedge/sync`
+- `GET /api/hedge/delta`
+- `GET /api/hedge/permissions`
+- `GET /api/hedge/safe-mode`
+- `GET /api/hedge/sync-flow`
 
-A trading signal is represented by [`domain.TradingSignal`](internal/domain/trading_signal.go):
+Authentication works with either:
 
-```go
-type TradingSignal struct {
-    ID        string
-    Symbol    string
-    Price     float64
-    Timestamp time.Time
-    Type      SignalType
-    Strategy  string
-}
-```
+- `Authorization: Bearer <jwt>`
+- `X-API-Key: <service-api-key>`
 
 ## Running
 
-Build and run the project:
-
-```sh
-go build -o markerTradeIa ./cmd
-./markerTradeIa
+```powershell
+go build -o markerTradeIa.exe ./cmd
+.\markerTradeIa.exe
 ```
 
-## Configuration
+## Status
 
-See [`config/config.go`](config/config.go) for configuration options.
+The hedge orchestration, persistence, API surface, and monitoring cache are in place for the MVP. Some exchange-side integrations still use partial simulation and should be hardened before handling real funds.

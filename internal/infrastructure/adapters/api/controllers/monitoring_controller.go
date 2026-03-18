@@ -1,7 +1,11 @@
 package controllers
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/ivan-salazar14/markerTradeIa/internal/application/services/monitoring"
 )
@@ -17,13 +21,34 @@ func NewMonitoringController(s *monitoring.MonitoringService) *MonitoringControl
 func (c *MonitoringController) GetPools(w http.ResponseWriter, r *http.Request) {
 	network := r.URL.Query().Get("network")
 	if network == "" {
-		network = "ethereum"
+		network = "mainnet"
 	}
 
-	// Assuming GetTopPools can be called from service (added for HTTP export)
-	// In the real implementation we would get from the last cache update
-	// or call the adapter directly through the service.
-	// For now let's just return a placeholder or implement in service.
+	limit := 5
+	if rawLimit := r.URL.Query().Get("limit"); rawLimit != "" {
+		if parsedLimit, err := strconv.Atoi(rawLimit); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+
+	pools, updatedAt, err := c.service.GetPools(r.Context(), network, limit)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to load pools: %v", err), http.StatusBadGateway)
+		return
+	}
+
+	response := struct {
+		Network   string      `json:"network"`
+		Count     int         `json:"count"`
+		UpdatedAt time.Time   `json:"updated_at"`
+		Pools     interface{} `json:"pools"`
+	}{
+		Network:   network,
+		Count:     len(pools),
+		UpdatedAt: updatedAt,
+		Pools:     pools,
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"status": "pool monitoring is active for ` + network + `"}`))
+	_ = json.NewEncoder(w).Encode(response)
 }

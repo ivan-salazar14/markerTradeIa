@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"log"
-	"strings"
 
 	"github.com/ivan-salazar14/markerTradeIa/config"
 	"github.com/ivan-salazar14/markerTradeIa/internal/application/services/auth"
@@ -74,11 +73,8 @@ func main() {
 		cfg.DryRun,
 	)
 
-	defaultAsset := "ETH"
-	if strings.EqualFold(defaultAsset, "ETH") {
-		defaultAsset = "ETH"
-	}
-	defaultWallet := "0xMockLPWallet123"
+	defaultAsset := cfg.DefaultHedgeAsset
+	defaultWallet := cfg.DefaultLPWalletAddress
 	defaultHLWallet := cfg.HyperliquidAddress
 
 	hedgeMonitorSvc := monitoring.NewHedgeMonitorService(
