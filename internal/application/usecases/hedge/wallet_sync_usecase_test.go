@@ -53,6 +53,23 @@ func (m *hyperliquidPortMock) SubscribeToUserEvents(ctx context.Context, address
 	return nil
 }
 
+type poolMonitorMock struct {
+	stats domain.PositionStats
+	err   error
+	calls int
+}
+
+func (m *poolMonitorMock) GetTopPools(ctx context.Context, network string, limit int) ([]domain.LiquidityPool, error) {
+	return nil, nil
+}
+func (m *poolMonitorMock) GetPositionStats(ctx context.Context, network string, positionID string) (domain.PositionStats, error) {
+	m.calls++
+	if m.err != nil {
+		return domain.PositionStats{}, m.err
+	}
+	return m.stats, nil
+}
+
 type hedgeRepositoryMock struct {
 	lastResult *domain.SyncHedgeResult
 }
@@ -84,8 +101,10 @@ func TestSyncHedgeReturnsSyncedWhenAlreadyBalanced(t *testing.T) {
 	uc := NewWalletSyncUseCase(
 		walletPortMock{pools: []domain.ActivePool{{Symbol: "ETH", Size: 0.25}}},
 		hl,
+		nil,
 		strategies.NewBasicDeltaNeutralStrategy(0.01),
 		repo,
+		"arbitrum",
 		false,
 		false,
 	)
@@ -108,8 +127,10 @@ func TestSyncHedgeReturnsSimulatedInSafeMode(t *testing.T) {
 	uc := NewWalletSyncUseCase(
 		walletPortMock{pools: []domain.ActivePool{{Symbol: "ETH", Size: 0.25}}},
 		hl,
+		nil,
 		strategies.NewBasicDeltaNeutralStrategy(0.01),
 		repo,
+		"arbitrum",
 		true,
 		true,
 	)
@@ -130,8 +151,10 @@ func TestSyncHedgeReturnsErrorWhenWalletFails(t *testing.T) {
 	uc := NewWalletSyncUseCase(
 		walletPortMock{err: errors.New("wallet failed")},
 		&hyperliquidPortMock{},
+		nil,
 		strategies.NewBasicDeltaNeutralStrategy(0.01),
 		&hedgeRepositoryMock{},
+		"arbitrum",
 		false,
 		false,
 	)
@@ -149,8 +172,10 @@ func TestSyncHedgeReturnsErrorWhenShortLookupFails(t *testing.T) {
 	uc := NewWalletSyncUseCase(
 		walletPortMock{pools: []domain.ActivePool{{Symbol: "ETH", Size: 0.25}}},
 		&hyperliquidPortMock{shortErr: errors.New("short failed")},
+		nil,
 		strategies.NewBasicDeltaNeutralStrategy(0.01),
 		&hedgeRepositoryMock{},
+		"arbitrum",
 		false,
 		false,
 	)
@@ -161,5 +186,39 @@ func TestSyncHedgeReturnsErrorWhenShortLookupFails(t *testing.T) {
 	}
 	if result.Status != "error" {
 		t.Fatalf("expected error status, got %s", result.Status)
+	}
+}
+
+func TestConnectAndFetchWalletEnrichesPoolsWithRevertStats(t *testing.T) {
+	monitor := &poolMonitorMock{
+		stats: domain.PositionStats{
+			APR:            12.5,
+			ROI:            3.2,
+			UncollectedFee: 45.0,
+		},
+	}
+	uc := NewWalletSyncUseCase(
+		walletPortMock{pools: []domain.ActivePool{{PoolID: "0xpool:123", TokenID: "123", Symbol: "ETH", Size: 0.25}}},
+		&hyperliquidPortMock{},
+		monitor,
+		strategies.NewBasicDeltaNeutralStrategy(0.01),
+		&hedgeRepositoryMock{},
+		"arbitrum",
+		false,
+		false,
+	)
+
+	wallet, err := uc.ConnectAndFetchWallet(context.Background(), "wallet-a")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(wallet.ActivePools) != 1 {
+		t.Fatalf("expected 1 active pool, got %d", len(wallet.ActivePools))
+	}
+	if wallet.ActivePools[0].APR != 12.5 {
+		t.Fatalf("expected APR enrichment, got %f", wallet.ActivePools[0].APR)
+	}
+	if monitor.calls != 1 {
+		t.Fatalf("expected monitor to be called once, got %d", monitor.calls)
 	}
 }

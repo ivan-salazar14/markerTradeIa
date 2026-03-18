@@ -67,8 +67,10 @@ func main() {
 	walletSyncUseCase := hedge.NewWalletSyncUseCase(
 		walletAdapter,
 		hyperliquidAdapter,
+		revertAdapter,
 		deltaStrategy,
 		hedgeRepository,
+		cfg.DefaultPositionNetwork,
 		cfg.SafeMode,
 		cfg.DryRun,
 	)

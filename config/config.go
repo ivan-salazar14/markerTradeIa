@@ -31,6 +31,7 @@ type Config struct {
 	UniswapPositionManager string
 	DefaultHedgeAsset      string
 	DefaultLPWalletAddress string
+	DefaultPositionNetwork string
 	SafeMode               bool
 	DryRun                 bool
 }
@@ -58,6 +59,7 @@ func Load() (*Config, error) {
 		UniswapPositionManager: getEnv("UNISWAP_POSITION_MANAGER", ""),
 		DefaultHedgeAsset:      getEnv("DEFAULT_HEDGE_ASSET", "ETH"),
 		DefaultLPWalletAddress: getEnv("DEFAULT_LP_WALLET_ADDRESS", ""),
+		DefaultPositionNetwork: getEnv("DEFAULT_POSITION_NETWORK", "arbitrum"),
 		SafeMode:               getEnvAsBool("SAFE_MODE", true),
 		DryRun:                 getEnvAsBool("DRY_RUN", true),
 	}

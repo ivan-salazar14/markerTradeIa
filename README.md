@@ -6,6 +6,7 @@ MarkerTradeIa is a Go backend for monitoring and synchronizing a delta-neutral c
 
 - Connect and inspect an LP wallet.
 - Read active pool exposure from the wallet adapter.
+- Enrich LP positions with Revert Finance metrics when position stats are available.
 - Read the current short exposure from the Hyperliquid adapter.
 - Evaluate hedge drift through a strategy use case.
 - Persist hedge states, actions, sync events, and wallet connections in PostgreSQL.

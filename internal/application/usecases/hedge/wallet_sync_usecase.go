@@ -13,8 +13,10 @@ import (
 type WalletSyncUseCase struct {
 	walletPort      out.WalletPort
 	hyperliquidPort out.HyperliquidPort
+	poolMonitor     out.PoolMonitor
 	strategy        domain.IHedgeStrategy
 	hedgeRepository out.HedgeRepository
+	positionNetwork string
 	safeMode        bool
 	dryRun          bool
 }
@@ -22,16 +24,20 @@ type WalletSyncUseCase struct {
 func NewWalletSyncUseCase(
 	walletPort out.WalletPort,
 	hyperliquidPort out.HyperliquidPort,
+	poolMonitor out.PoolMonitor,
 	strategy domain.IHedgeStrategy,
 	hedgeRepository out.HedgeRepository,
+	positionNetwork string,
 	safeMode bool,
 	dryRun bool,
 ) *WalletSyncUseCase {
 	return &WalletSyncUseCase{
 		walletPort:      walletPort,
 		hyperliquidPort: hyperliquidPort,
+		poolMonitor:     poolMonitor,
 		strategy:        strategy,
 		hedgeRepository: hedgeRepository,
+		positionNetwork: positionNetwork,
 		safeMode:        safeMode,
 		dryRun:          dryRun,
 	}
@@ -49,6 +55,8 @@ func (u *WalletSyncUseCase) ConnectAndFetchWallet(ctx context.Context, address s
 		return domain.WalletData{}, fmt.Errorf("failed fetching active pools: %w", err)
 	}
 
+	enrichedPools := u.enrichPools(ctx, pools)
+
 	var parsedBalances []domain.WalletBalance
 	for asset, amt := range balances {
 		parsedBalances = append(parsedBalances, domain.WalletBalance{
@@ -60,7 +68,7 @@ func (u *WalletSyncUseCase) ConnectAndFetchWallet(ctx context.Context, address s
 	return domain.WalletData{
 		Address:     address,
 		Balances:    parsedBalances,
-		ActivePools: pools,
+		ActivePools: enrichedPools,
 	}, nil
 }
 
@@ -156,6 +164,40 @@ func (u *WalletSyncUseCase) SyncHedge(ctx context.Context, addressA string, hlAd
 	return result, nil
 }
 
+func (u *WalletSyncUseCase) enrichPools(ctx context.Context, pools []domain.ActivePool) []domain.ActivePool {
+	if u.poolMonitor == nil {
+		return pools
+	}
+
+	enriched := make([]domain.ActivePool, 0, len(pools))
+	for _, pool := range pools {
+		pool.Network = u.positionNetwork
+		if pool.Protocol == "" {
+			pool.Protocol = "uniswap_v3"
+		}
+		tokenID := strings.TrimSpace(pool.TokenID)
+		if tokenID == "" {
+			tokenID = extractTokenID(pool.PoolID)
+			pool.TokenID = tokenID
+		}
+
+		if tokenID != "" {
+			stats, err := u.poolMonitor.GetPositionStats(ctx, u.positionNetwork, tokenID)
+			if err == nil {
+				pool.APR = stats.APR
+				pool.ROI = stats.ROI
+				pool.UncollectedFee = stats.UncollectedFee
+				if pool.ValueUsd == 0 {
+					pool.ValueUsd = stats.UncollectedFee
+				}
+			}
+		}
+
+		enriched = append(enriched, pool)
+	}
+	return enriched
+}
+
 func (u *WalletSyncUseCase) persistSync(ctx context.Context, triggerType string, result domain.SyncHedgeResult) {
 	if u.hedgeRepository == nil {
 		return
@@ -172,4 +214,12 @@ func sameAsset(left string, right string) bool {
 		return true
 	}
 	return (left == "ETH" && right == "WETH") || (left == "WETH" && right == "ETH")
+}
+
+func extractTokenID(poolID string) string {
+	parts := strings.Split(strings.TrimSpace(poolID), ":")
+	if len(parts) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(parts[len(parts)-1])
 }
