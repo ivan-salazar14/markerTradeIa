@@ -1,77 +1,128 @@
 package perps
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"math"
+	"net/http"
 	"net/url"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/ivan-salazar14/markerTradeIa/internal/domain/ports/out"
 )
 
-// HyperliquidAdapter implements out.HyperliquidPort using real WebSockets 
-// for market data and mocked order execution
+const (
+	hyperliquidInfoURL = "https://api.hyperliquid.xyz/info"
+	hyperliquidWSURL   = "wss://api.hyperliquid.xyz/ws"
+)
+
+// HyperliquidAdapter implements out.HyperliquidPort using Hyperliquid's public info API
+// and websocket subscriptions. Order placement remains intentionally blocked until the
+// signing flow is implemented.
 type HyperliquidAdapter struct {
 	clientConnected bool
 	apiSecret       string
+	httpClient      *http.Client
+	wsDialer        *websocket.Dialer
 }
 
 func NewHyperliquidAdapter() out.HyperliquidPort {
 	return &HyperliquidAdapter{
-		clientConnected: false,
+		httpClient: &http.Client{Timeout: 15 * time.Second},
+		wsDialer:   websocket.DefaultDialer,
 	}
 }
 
 func (a *HyperliquidAdapter) Connect(ctx context.Context, privateKey string) error {
+	privateKey = strings.TrimSpace(privateKey)
+	if privateKey == "" {
+		return fmt.Errorf("hyperliquid private key is required")
+	}
 	a.clientConnected = true
-	a.apiSecret = "MOCKED_" + privateKey
-	log.Println("[Hyperliquid] Connected using private key")
+	a.apiSecret = privateKey
+	log.Println("[Hyperliquid] Adapter connected")
 	return nil
 }
 
 func (a *HyperliquidAdapter) GetBalances(ctx context.Context, address string) (map[string]float64, error) {
-	if !a.clientConnected {
-		return nil, fmt.Errorf("hyperliquid client not connected")
+	state, err := a.fetchClearinghouseState(ctx, address)
+	if err != nil {
+		return nil, err
 	}
-	return map[string]float64{
-		"USDC": 12500.0,
-		"WETH": 0.0,
-	}, nil
+
+	balances := map[string]float64{}
+	if value, ok := parseFloat(state.MarginSummary.AccountValue); ok {
+		balances["ACCOUNT_VALUE"] = value
+	}
+	if value, ok := parseFloat(state.MarginSummary.TotalMarginUsed); ok {
+		balances["TOTAL_MARGIN_USED"] = value
+	}
+	if value, ok := parseFloat(state.Withdrawable); ok {
+		balances["WITHDRAWABLE"] = value
+	}
+
+	for _, balance := range state.AssetPositions {
+		coin := strings.TrimSpace(balance.Position.Coin)
+		if coin == "" {
+			continue
+		}
+		if size, ok := parseFloat(balance.Position.Szi); ok {
+			balances[coin] = size
+		}
+	}
+
+	return balances, nil
 }
 
 func (a *HyperliquidAdapter) GetShortPosition(ctx context.Context, address string, asset string) (float64, error) {
-	if !a.clientConnected {
-		return 0, fmt.Errorf("hyperliquid client not connected")
+	state, err := a.fetchClearinghouseState(ctx, address)
+	if err != nil {
+		return 0, err
 	}
-	// Returning a mock active short equivalent to 0.5 Asset size.
-	if asset == "WETH" {
-		return 0.5, nil
+
+	for _, position := range state.AssetPositions {
+		coin := strings.TrimSpace(position.Position.Coin)
+		if !strings.EqualFold(coin, asset) {
+			continue
+		}
+		size, ok := parseFloat(position.Position.Szi)
+		if !ok {
+			return 0, fmt.Errorf("invalid position size for asset %s", asset)
+		}
+		if size < 0 {
+			return math.Abs(size), nil
+		}
+		return 0, nil
 	}
-	return 0.0, nil
+
+	return 0, nil
 }
 
 func (a *HyperliquidAdapter) PlaceMarketOrder(ctx context.Context, asset string, isBuy bool, size float64) error {
 	if !a.clientConnected {
 		return fmt.Errorf("hyperliquid client not connected")
 	}
+
 	side := "SELL"
 	if isBuy {
 		side = "BUY"
 	}
-	log.Printf("[Hyperliquid REST API] Placing %s Market Order for %f of %s", side, size, asset)
-	return nil
+
+	// The signing flow for Hyperliquid exchange actions is not implemented yet.
+	return fmt.Errorf("hyperliquid order placement not implemented yet for %s %f %s", side, size, asset)
 }
 
-// SubscribeToMarketUpdates connects via Gorilla WebSocket to get real L2 orderbook updates for pricing
 func (a *HyperliquidAdapter) SubscribeToMarketUpdates(ctx context.Context, asset string, priceCh chan<- float64) error {
-	u := url.URL{Scheme: "wss", Host: "api.hyperliquid.xyz", Path: "/ws"}
-	
-	log.Printf("[Hyperliquid WS] Connecting to %s for Market Updates (%s)...", u.String(), asset)
-	c, _, err := websocket.DefaultDialer.DialContext(ctx, u.String(), nil)
+	c, err := a.openWS(ctx)
 	if err != nil {
-		return fmt.Errorf("dial error: %w", err)
+		return err
 	}
 
 	subscribeMsg := map[string]interface{}{
@@ -92,32 +143,23 @@ func (a *HyperliquidAdapter) SubscribeToMarketUpdates(ctx context.Context, asset
 		for {
 			select {
 			case <-ctx.Done():
-				log.Println("[Hyperliquid WS] Stopping Market Updates subscription")
+				log.Println("[Hyperliquid WS] Stopping market subscription")
 				return
 			default:
 				_, message, err := c.ReadMessage()
 				if err != nil {
-					log.Printf("[Hyperliquid WS] Read Error: %v", err)
-					return // End loop on close/read error
+					log.Printf("[Hyperliquid WS] Market read error: %v", err)
+					return
 				}
-				
-				var result map[string]interface{}
-				if err := json.Unmarshal(message, &result); err != nil {
+
+				price, ok := parseL2BookPrice(message)
+				if !ok {
 					continue
 				}
 
-				if channel, ok := result["channel"].(string); ok && channel == "l2Book" {
-					// We've received a real update!
-					// In a full implementation, we'd parse `data.levels` to calculate the Mark price properly.
-					// For demonstration, we simply push a signal/price to the channel to trigger standard polling/logic.
-					log.Printf("[Hyperliquid WS] Real-time orderbook update received for %s", asset)
-					select {
-					case priceCh <- 2055.00: // Mock parsed price
-					default:
-						// Skip if channel is full to prevent block
-					}
-				} else if channel, ok := result["channel"].(string); ok && channel == "subscriptionResponse" {
-					log.Printf("[Hyperliquid WS] Successfully subscribed to L2Book for %s", asset)
+				select {
+				case priceCh <- price:
+				default:
 				}
 			}
 		}
@@ -126,14 +168,10 @@ func (a *HyperliquidAdapter) SubscribeToMarketUpdates(ctx context.Context, asset
 	return nil
 }
 
-// SubscribeToUserEvents connects via WebSocket to listen for trade executions, fills, or position changes
 func (a *HyperliquidAdapter) SubscribeToUserEvents(ctx context.Context, address string, sizeCh chan<- float64) error {
-	u := url.URL{Scheme: "wss", Host: "api.hyperliquid.xyz", Path: "/ws"}
-	
-	log.Printf("[Hyperliquid WS] Connecting for User Events (Wallet: %s)...", address)
-	c, _, err := websocket.DefaultDialer.DialContext(ctx, u.String(), nil)
+	c, err := a.openWS(ctx)
 	if err != nil {
-		return fmt.Errorf("dial error: %w", err)
+		return err
 	}
 
 	subscribeMsg := map[string]interface{}{
@@ -154,36 +192,202 @@ func (a *HyperliquidAdapter) SubscribeToUserEvents(ctx context.Context, address 
 		for {
 			select {
 			case <-ctx.Done():
-				log.Println("[Hyperliquid WS] Stopping User Events subscription")
+				log.Println("[Hyperliquid WS] Stopping user events subscription")
 				return
 			default:
 				_, message, err := c.ReadMessage()
 				if err != nil {
-					log.Printf("[Hyperliquid WS] UserEvents Read Error: %v", err)
+					log.Printf("[Hyperliquid WS] UserEvents read error: %v", err)
 					return
 				}
-				
-				var result map[string]interface{}
-				if err := json.Unmarshal(message, &result); err != nil {
+
+				positionSize, ok := parseUserEventPositionSize(message)
+				if !ok {
 					continue
 				}
 
-				if channel, ok := result["channel"].(string); ok && channel == "userEvents" {
-					log.Printf("[Hyperliquid WS] User event state change detected for %s!", address)
-					
-					// Typically we would parse `data.fills` to figure out position delta, 
-					// or `data.clearinghouseState` to just read the current short absolute size.
-					// We're pushing a size signaling a change required.
-					select {
-					case sizeCh <- 0.5: // Mock short size from event
-					default:
-					}
-				} else if channel, ok := result["channel"].(string); ok && channel == "subscriptionResponse" {
-					log.Printf("[Hyperliquid WS] Successfully subscribed to User Events for wallet %s", address)
+				select {
+				case sizeCh <- positionSize:
+				default:
 				}
 			}
 		}
 	}()
 
 	return nil
+}
+
+func (a *HyperliquidAdapter) fetchClearinghouseState(ctx context.Context, address string) (*clearinghouseStateResponse, error) {
+	if !a.clientConnected {
+		return nil, fmt.Errorf("hyperliquid client not connected")
+	}
+
+	payload := map[string]string{
+		"type": "clearinghouseState",
+		"user": address,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, hyperliquidInfoURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		responseBody, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("hyperliquid info error: %s - %s", resp.Status, strings.TrimSpace(string(responseBody)))
+	}
+
+	var state clearinghouseStateResponse
+	if err := json.NewDecoder(resp.Body).Decode(&state); err != nil {
+		return nil, err
+	}
+
+	return &state, nil
+}
+
+func (a *HyperliquidAdapter) openWS(ctx context.Context) (*websocket.Conn, error) {
+	u, err := url.Parse(hyperliquidWSURL)
+	if err != nil {
+		return nil, err
+	}
+	log.Printf("[Hyperliquid WS] Connecting to %s", u.String())
+	conn, _, err := a.wsDialer.DialContext(ctx, u.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("dial error: %w", err)
+	}
+	return conn, nil
+}
+
+type clearinghouseStateResponse struct {
+	MarginSummary struct {
+		AccountValue    string `json:"accountValue"`
+		TotalMarginUsed string `json:"totalMarginUsed"`
+	} `json:"marginSummary"`
+	Withdrawable   string `json:"withdrawable"`
+	AssetPositions []struct {
+		Position struct {
+			Coin string `json:"coin"`
+			Szi  string `json:"szi"`
+		} `json:"position"`
+	} `json:"assetPositions"`
+}
+
+func parseL2BookPrice(message []byte) (float64, bool) {
+	var payload map[string]interface{}
+	if err := json.Unmarshal(message, &payload); err != nil {
+		return 0, false
+	}
+
+	channel, _ := payload["channel"].(string)
+	if channel != "l2Book" {
+		return 0, false
+	}
+
+	data, ok := payload["data"].(map[string]interface{})
+	if !ok {
+		return 0, false
+	}
+
+	levels, ok := data["levels"].([]interface{})
+	if !ok || len(levels) == 0 {
+		return 0, false
+	}
+
+	firstSide, ok := levels[0].([]interface{})
+	if !ok || len(firstSide) == 0 {
+		return 0, false
+	}
+
+	firstLevel, ok := firstSide[0].(map[string]interface{})
+	if !ok {
+		return 0, false
+	}
+
+	price, ok := parseUnknownFloat(firstLevel["px"])
+	if !ok {
+		return 0, false
+	}
+	return price, true
+}
+
+func parseUserEventPositionSize(message []byte) (float64, bool) {
+	var payload map[string]interface{}
+	if err := json.Unmarshal(message, &payload); err != nil {
+		return 0, false
+	}
+
+	channel, _ := payload["channel"].(string)
+	if channel != "userEvents" {
+		return 0, false
+	}
+
+	data, ok := payload["data"].(map[string]interface{})
+	if !ok {
+		return 0, false
+	}
+
+	if fills, ok := data["fills"].([]interface{}); ok && len(fills) > 0 {
+		lastFill, ok := fills[len(fills)-1].(map[string]interface{})
+		if !ok {
+			return 0, false
+		}
+		if size, ok := parseUnknownFloat(lastFill["sz"]); ok {
+			return size, true
+		}
+	}
+
+	if state, ok := data["clearinghouseState"].(map[string]interface{}); ok {
+		positions, ok := state["assetPositions"].([]interface{})
+		if !ok || len(positions) == 0 {
+			return 0, false
+		}
+		for _, entry := range positions {
+			positionEntry, ok := entry.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			position, ok := positionEntry["position"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if size, ok := parseUnknownFloat(position["szi"]); ok {
+				return math.Abs(size), true
+			}
+		}
+	}
+
+	return 0, false
+}
+
+func parseUnknownFloat(value interface{}) (float64, bool) {
+	switch typed := value.(type) {
+	case float64:
+		return typed, true
+	case string:
+		return parseFloat(typed)
+	case json.Number:
+		v, err := typed.Float64()
+		return v, err == nil
+	default:
+		return 0, false
+	}
+}
+
+func parseFloat(value string) (float64, bool) {
+	parsed, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil {
+		return 0, false
+	}
+	return parsed, true
 }

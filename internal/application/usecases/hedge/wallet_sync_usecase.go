@@ -3,6 +3,7 @@ package hedge
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/ivan-salazar14/markerTradeIa/internal/domain"
@@ -105,7 +106,7 @@ func (u *WalletSyncUseCase) SyncHedge(ctx context.Context, addressA string, hlAd
 	}
 
 	for _, p := range pools {
-		if p.Symbol == asset {
+		if sameAsset(p.Symbol, asset) {
 			result.PoolExposure += p.Size
 		}
 	}
@@ -162,4 +163,13 @@ func (u *WalletSyncUseCase) persistSync(ctx context.Context, triggerType string,
 	_ = u.hedgeRepository.SaveHedgeState(ctx, result)
 	_ = u.hedgeRepository.SaveHedgeAction(ctx, result)
 	_ = u.hedgeRepository.SaveSyncEvent(ctx, triggerType, result)
+}
+
+func sameAsset(left string, right string) bool {
+	left = strings.TrimSpace(strings.ToUpper(left))
+	right = strings.TrimSpace(strings.ToUpper(right))
+	if left == right {
+		return true
+	}
+	return (left == "ETH" && right == "WETH") || (left == "WETH" && right == "ETH")
 }
