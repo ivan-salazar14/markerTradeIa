@@ -14,4 +14,9 @@ type HyperliquidPort interface {
 	GetShortPosition(ctx context.Context, address string, asset string) (float64, error)
 	// PlaceMarketOrder places an order for hedging
 	PlaceMarketOrder(ctx context.Context, asset string, isBuy bool, size float64) error
+
+	// SubscribeToMarketUpdates streams real-time mark prices for the asset
+	SubscribeToMarketUpdates(ctx context.Context, asset string, priceCh chan<- float64) error
+	// SubscribeToUserEvents streams real-time updates of our short position
+	SubscribeToUserEvents(ctx context.Context, address string, sizeCh chan<- float64) error
 }

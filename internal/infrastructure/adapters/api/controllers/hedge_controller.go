@@ -2,18 +2,22 @@ package controllers
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
+	"github.com/ivan-salazar14/markerTradeIa/internal/application/usecases/hedge"
 	"github.com/ivan-salazar14/markerTradeIa/internal/domain"
 )
 
 type HedgeController struct {
-	// En el futuro inyectaremos el servicio aquí
+	walletSyncUseCase *hedge.WalletSyncUseCase
 }
 
-func NewHedgeController() *HedgeController {
-	return &HedgeController{}
+func NewHedgeController(walletSyncUseCase *hedge.WalletSyncUseCase) *HedgeController {
+	return &HedgeController{
+		walletSyncUseCase: walletSyncUseCase,
+	}
 }
 
 func (c *HedgeController) GetStrategy(w http.ResponseWriter, r *http.Request) {
@@ -90,12 +94,28 @@ func (c *HedgeController) ConnectWallet(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	resp := domain.WalletActionResponse{
-		Success:    true,
-		WalletType: req.WalletType,
-		Address:    req.Address,
-		Message:    "Wallet conectada exitosamente",
+	// Fetch real data for the wallet
+	walletData, err := c.walletSyncUseCase.ConnectAndFetchWallet(r.Context(), req.Address)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to connect wallet: %v", err), http.StatusInternalServerError)
+		return
 	}
+
+	// For legacy compatibility, we return success and message, 
+	// but we could also return the walletData here.
+	resp := struct {
+		domain.WalletActionResponse
+		Data domain.WalletData `json:"data"`
+	}{
+		WalletActionResponse: domain.WalletActionResponse{
+			Success:    true,
+			WalletType: req.WalletType,
+			Address:    req.Address,
+			Message:    "Wallet conectada y sincronizada exitosamente",
+		},
+		Data: walletData,
+	}
+
 	c.json(w, resp)
 }
 

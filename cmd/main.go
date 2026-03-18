@@ -28,6 +28,11 @@ import (
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/api/controllers"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/monitoring/revert"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/repository/database"
+
+	"github.com/ivan-salazar14/markerTradeIa/internal/application/usecases/hedge"
+	"github.com/ivan-salazar14/markerTradeIa/internal/application/usecases/hedge/strategies"
+	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/dex/uniswap"
+	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/perps"
 )
 
 func main() {
@@ -66,21 +71,42 @@ func main() {
 		cfg.MonitoringInterval,
 	)
 
-	// Setup API
-	monController := controllers.NewMonitoringController(poolMonitoringService)
-	hedgeController := controllers.NewHedgeController()
-	router := api.NewRouter(authSvc, monController, hedgeController)
-	handler := router.Init()
-
-	// Inicializar el adaptador de entrada de Kafka, inyectando el servicio de aplicación
-	//	kafkaConsumer := kafka.NewConsumerAdapter(tradingService)
-
 	// Contexto para manejar la cancelación del servicio
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Iniciar el monitoreo en segundo plano
+	// Inicializar dependencias del sistema Hedge Delta-Neutral
+	walletAdapter, err := uniswap.NewUniswapV3WalletAdapter(
+		"https://arb1.arbitrum.io/rpc", 
+		"0xC36442b4a4522E871399CD717aBDD847Ab11FE88",
+	)
+	if err != nil {
+		log.Fatalf("Error inicializando Uniswap Adapter: %v", err)
+	}
+
+	hyperliquidAdapter := perps.NewHyperliquidAdapter()
+	_ = hyperliquidAdapter.Connect(ctx, "private-key-mock")
+
+	deltaStrategy := strategies.NewBasicDeltaNeutralStrategy(0.01) // 0.01 tolerance
+	walletSyncUseCase := hedge.NewWalletSyncUseCase(walletAdapter, hyperliquidAdapter, deltaStrategy)
+
+	hedgeMonitorSvc := monitoring.NewHedgeMonitorService(
+		hyperliquidAdapter,
+		walletSyncUseCase,
+		"ETH", // Use ETH to match l2Book available coins on Mainnet Hyperliquid
+		"0xMockLPWallet123",
+		"0xMockHLWallet456",
+	)
+
+	// Setup API
+	monController := controllers.NewMonitoringController(poolMonitoringService)
+	hedgeController := controllers.NewHedgeController(walletSyncUseCase)
+	router := api.NewRouter(authSvc, monController, hedgeController)
+	handler := router.Init()
+
+	// Iniciar monitoreos en background
 	go poolMonitoringService.Start(ctx)
+	go hedgeMonitorSvc.Start(ctx)
 
 	// Iniciar Servidor HTTP (este comando bloquea el hilo principal para mantener la API viva)
 	log.Println("Servidor HTTP iniciado en puerto 8081. Presiona Ctrl+C para salir.")
