@@ -2,6 +2,7 @@ package controllers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/ivan-salazar14/markerTradeIa/internal/application/services/auth"
@@ -23,7 +24,6 @@ func (c *AuthController) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Mock Authentication for demonstration (replace with actual user validation)
 	if req.UID == "" || req.Secret == "" {
 		http.Error(w, "missing credentials", http.StatusUnauthorized)
 		return
@@ -41,7 +41,7 @@ func (c *AuthController) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(tokens)
+	_ = json.NewEncoder(w).Encode(tokens)
 }
 
 func (c *AuthController) Refresh(w http.ResponseWriter, r *http.Request) {
@@ -64,5 +64,43 @@ func (c *AuthController) Refresh(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(newTokens)
+	_ = json.NewEncoder(w).Encode(newTokens)
+}
+
+func (c *AuthController) WalletChallenge(w http.ResponseWriter, r *http.Request) {
+	var req domain.WalletChallengeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	challenge, err := c.authService.CreateWalletChallenge(req.Address)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(challenge)
+}
+
+func (c *AuthController) WalletVerify(w http.ResponseWriter, r *http.Request) {
+	var req domain.WalletVerifyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request", http.StatusBadRequest)
+		return
+	}
+
+	tokens, err := c.authService.VerifyWalletChallenge(req.Address, req.Nonce, req.Signature)
+	if err != nil {
+		status := http.StatusUnauthorized
+		if errors.Is(err, auth.ErrInvalidWalletAddress) || errors.Is(err, auth.ErrInvalidWalletChallenge) {
+			status = http.StatusBadRequest
+		}
+		http.Error(w, err.Error(), status)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(tokens)
 }

@@ -16,14 +16,16 @@ type Router struct {
 	monitoringController *controllers.MonitoringController
 	hedgeController      *controllers.HedgeController
 	authService          *auth.AuthService
+	disableAuthLocalhost bool
 }
 
-func NewRouter(authSvc *auth.AuthService, monController *controllers.MonitoringController, hedgeController *controllers.HedgeController) *Router {
+func NewRouter(authSvc *auth.AuthService, monController *controllers.MonitoringController, hedgeController *controllers.HedgeController, disableAuthLocalhost bool) *Router {
 	return &Router{
 		authController:       controllers.NewAuthController(authSvc),
 		monitoringController: monController,
 		hedgeController:      hedgeController,
 		authService:          authSvc,
+		disableAuthLocalhost: disableAuthLocalhost,
 	}
 }
 
@@ -37,10 +39,12 @@ func (r *Router) Init() http.Handler {
 	// Public Routes
 	mux.Post("/auth/login", r.authController.Login)
 	mux.Post("/auth/refresh", r.authController.Refresh)
+	mux.Post("/auth/wallet/challenge", r.authController.WalletChallenge)
+	mux.Post("/auth/wallet/verify", r.authController.WalletVerify)
 
 	// Protected Routes (M2M or User)
 	mux.Group(func(mux chi.Router) {
-		mux.Use(apiMiddleware.AuthMiddleware(r.authService))
+		mux.Use(apiMiddleware.AuthMiddleware(r.authService, r.disableAuthLocalhost))
 
 		mux.Get("/api/v1/pools", r.monitoringController.GetPools)
 

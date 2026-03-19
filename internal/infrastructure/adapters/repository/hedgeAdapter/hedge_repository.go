@@ -109,11 +109,21 @@ func (r *HedgeRepository) GetWalletConnections(ctx context.Context) ([]domain.Wa
 		wallets = append(wallets, domain.WalletInfo{
 			Type:        model.WalletType,
 			Name:        model.WalletType,
-			Connected:   model.Status == "connected",
+			Connected:   true,
+			Status:      model.Status,
+			Verified:    model.Status == "verified",
+			AccessMode:  walletAccessMode(model.Status),
 			Address:     &address,
 			FullAddress: &address,
 		})
 	}
 
 	return wallets, nil
+}
+
+func walletAccessMode(status string) string {
+	if status == "verified" {
+		return "manage"
+	}
+	return "read_only"
 }

@@ -34,6 +34,7 @@ type Config struct {
 	DefaultPositionNetwork string
 	SafeMode               bool
 	DryRun                 bool
+	DisableAuthLocalhost   bool
 }
 
 // Load carga la configuracion desde variables de entorno.
@@ -49,8 +50,8 @@ func Load() (*Config, error) {
 		HyperliquidKey:         getEnv("HYPERLIQUID_PRIVATE_KEY", ""),
 		ProcessTimeout:         getEnvAsDuration("PROCESS_TIMEOUT", 10*time.Second),
 		RevertBaseURL:          getEnv("REVERT_BASE_URL", "https://api.revert.finance/v1"),
-		RevertNetworks:         splitCSV(getEnv("REVERT_NETWORKS", "mainnet,polygon,arbitrum,optimism")),
-		MonitoringInterval:     getEnvAsDuration("MONITORING_INTERVAL", time.Minute),
+		RevertNetworks:         splitCSV(getEnv("REVERT_NETWORKS", "arbitrum")),
+		MonitoringInterval:     getEnvAsDuration("MONITORING_INTERVAL", time.Minute*5),
 		JWTSecret:              getEnv("JWT_SECRET", ""),
 		AccessExpiry:           getEnvAsDuration("ACCESS_EXPIRY", 15*time.Minute),
 		RefreshExpiry:          getEnvAsDuration("REFRESH_EXPIRY", 7*24*time.Hour),
@@ -62,6 +63,7 @@ func Load() (*Config, error) {
 		DefaultPositionNetwork: getEnv("DEFAULT_POSITION_NETWORK", "arbitrum"),
 		SafeMode:               getEnvAsBool("SAFE_MODE", true),
 		DryRun:                 getEnvAsBool("DRY_RUN", true),
+		DisableAuthLocalhost:   getEnvAsBool("DISABLE_AUTH_LOCALHOST", true),
 	}
 	cfg.PostgresDSN = cfg.DatabaseURL
 
@@ -71,13 +73,18 @@ func Load() (*Config, error) {
 		"JWT_SECRET":                cfg.JWTSecret,
 		"EVM_RPC_URL":               cfg.EVMRPCURL,
 		"UNISWAP_POSITION_MANAGER":  cfg.UniswapPositionManager,
-		"HYPERLIQUID_PRIVATE_KEY":   cfg.HyperliquidKey,
-		"HYPERLIQUID_ADDRESS":       cfg.HyperliquidAddress,
 		"DEFAULT_LP_WALLET_ADDRESS": cfg.DefaultLPWalletAddress,
+		"HYPERLIQUID_ADDRESS":       cfg.HyperliquidAddress,
 	} {
 		if strings.TrimSpace(value) == "" {
 			missing = append(missing, key)
 		}
+	}
+
+	// HYPERLIQUID_PRIVATE_KEY is optional - only required for order execution
+	// For reading public data (balances, positions, market prices), only the address is needed
+	if cfg.HyperliquidKey != "" && cfg.HyperliquidAddress == "" {
+		missing = append(missing, "HYPERLIQUID_ADDRESS is required when HYPERLIQUID_PRIVATE_KEY is provided")
 	}
 
 	if len(missing) > 0 {

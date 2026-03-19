@@ -250,13 +250,26 @@ func (a *UniswapV3WalletAdapter) getPositionDetails(ctx context.Context, tokenID
 		return nil, fmt.Errorf("unexpected positions result length for token %s", tokenID.String())
 	}
 
+	fee, ok := results[4].(*big.Int)
+	if !ok {
+		return nil, fmt.Errorf("failed to convert fee to *big.Int for token %s", tokenID.String())
+	}
+	tickLower, ok := results[5].(*big.Int)
+	if !ok {
+		return nil, fmt.Errorf("failed to convert tickLower to *big.Int for token %s", tokenID.String())
+	}
+	tickUpper, ok := results[6].(*big.Int)
+	if !ok {
+		return nil, fmt.Errorf("failed to convert tickUpper to *big.Int for token %s", tokenID.String())
+	}
+
 	position := &positionDetails{
 		TokenID:     tokenID,
 		Token0:      results[2].(common.Address),
 		Token1:      results[3].(common.Address),
-		Fee:         results[4].(uint32),
-		TickLower:   results[5].(int32),
-		TickUpper:   results[6].(int32),
+		Fee:         uint32(fee.Uint64()),
+		TickLower:   int32(tickLower.Int64()),
+		TickUpper:   int32(tickUpper.Int64()),
 		Liquidity:   results[7].(*big.Int),
 		TokensOwed0: results[10].(*big.Int),
 		TokensOwed1: results[11].(*big.Int),
@@ -302,7 +315,9 @@ func (a *UniswapV3WalletAdapter) getTokenMetadata(ctx context.Context, token com
 }
 
 func (a *UniswapV3WalletAdapter) getPoolAddress(ctx context.Context, token0 common.Address, token1 common.Address, fee uint32) (common.Address, error) {
-	output, err := a.callContract(ctx, a.factory, a.factoryABI, "getPool", token0, token1, fee)
+	// Convert fee to *big.Int as uint24 (required by the ABI)
+	feeBig := big.NewInt(int64(fee))
+	output, err := a.callContract(ctx, a.factory, a.factoryABI, "getPool", token0, token1, feeBig)
 	if err != nil {
 		return common.Address{}, err
 	}

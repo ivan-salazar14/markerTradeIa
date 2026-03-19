@@ -72,11 +72,11 @@ func (u *WalletSyncUseCase) ConnectAndFetchWallet(ctx context.Context, address s
 	}, nil
 }
 
-func (u *WalletSyncUseCase) RegisterWallet(ctx context.Context, walletType string, address string) error {
+func (u *WalletSyncUseCase) RegisterWallet(ctx context.Context, walletType string, address string, status string) error {
 	if u.hedgeRepository == nil {
 		return nil
 	}
-	return u.hedgeRepository.SaveWalletConnection(ctx, walletType, address, "connected")
+	return u.hedgeRepository.SaveWalletConnection(ctx, walletType, address, status)
 }
 
 func (u *WalletSyncUseCase) GetLatestDelta(ctx context.Context, asset string) (*domain.SyncHedgeResult, error) {

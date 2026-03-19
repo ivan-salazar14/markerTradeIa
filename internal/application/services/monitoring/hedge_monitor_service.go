@@ -48,7 +48,7 @@ func (s *HedgeMonitorService) Start(ctx context.Context) {
 		log.Printf("[HedgeMonitor] Error suscribiendose a User Events: %v", err)
 	}
 
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(3000 * time.Second)
 	defer ticker.Stop()
 
 	for {

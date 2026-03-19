@@ -42,16 +42,27 @@ func NewHyperliquidAdapter() out.HyperliquidPort {
 
 func (a *HyperliquidAdapter) Connect(ctx context.Context, privateKey string) error {
 	privateKey = strings.TrimSpace(privateKey)
+
+	// If no private key is provided, we can still connect for reading public data
+	// (balances, positions, market prices, user events)
+	// Order execution will fail if no key is provided
 	if privateKey == "" {
-		return fmt.Errorf("hyperliquid private key is required")
+		log.Println("[Hyperliquid] Adapter connected in READ-ONLY mode (no private key)")
+	} else {
+		a.apiSecret = privateKey
+		log.Println("[Hyperliquid] Adapter connected with private key (order execution enabled)")
 	}
 	a.clientConnected = true
-	a.apiSecret = privateKey
-	log.Println("[Hyperliquid] Adapter connected")
 	return nil
 }
 
 func (a *HyperliquidAdapter) GetBalances(ctx context.Context, address string) (map[string]float64, error) {
+	// Validate address format before making API call
+	address = strings.TrimSpace(address)
+	if !strings.HasPrefix(address, "0x") || len(address) != 42 {
+		return nil, fmt.Errorf("invalid hyperliquid address format: %s (expected 0x... format with 42 characters)", address)
+	}
+
 	state, err := a.fetchClearinghouseState(ctx, address)
 	if err != nil {
 		return nil, err
@@ -64,7 +75,10 @@ func (a *HyperliquidAdapter) GetBalances(ctx context.Context, address string) (m
 	if value, ok := parseFloat(state.MarginSummary.TotalMarginUsed); ok {
 		balances["TOTAL_MARGIN_USED"] = value
 	}
-	if value, ok := parseFloat(state.Withdrawable); ok {
+	// Try MarginSummary.Withdrawable first, then fallback to top-level Withdrawable
+	if value, ok := parseFloat(state.MarginSummary.Withdrawable); ok {
+		balances["WITHDRAWABLE"] = value
+	} else if value, ok := parseFloat(state.Withdrawable); ok {
 		balances["WITHDRAWABLE"] = value
 	}
 
@@ -82,6 +96,12 @@ func (a *HyperliquidAdapter) GetBalances(ctx context.Context, address string) (m
 }
 
 func (a *HyperliquidAdapter) GetShortPosition(ctx context.Context, address string, asset string) (float64, error) {
+	// Validate address format before making API call
+	address = strings.TrimSpace(address)
+	if !strings.HasPrefix(address, "0x") || len(address) != 42 {
+		return 0, fmt.Errorf("invalid hyperliquid address format: %s (expected 0x... format with 42 characters)", address)
+	}
+
 	state, err := a.fetchClearinghouseState(ctx, address)
 	if err != nil {
 		return 0, err
@@ -108,6 +128,10 @@ func (a *HyperliquidAdapter) GetShortPosition(ctx context.Context, address strin
 func (a *HyperliquidAdapter) PlaceMarketOrder(ctx context.Context, asset string, isBuy bool, size float64) error {
 	if !a.clientConnected {
 		return fmt.Errorf("hyperliquid client not connected")
+	}
+
+	if a.apiSecret == "" {
+		return fmt.Errorf("hyperliquid private key required for order execution - currently in read-only mode")
 	}
 
 	side := "SELL"
@@ -222,6 +246,14 @@ func (a *HyperliquidAdapter) fetchClearinghouseState(ctx context.Context, addres
 		return nil, fmt.Errorf("hyperliquid client not connected")
 	}
 
+	// Validate address format
+	address = strings.TrimSpace(address)
+	if !strings.HasPrefix(address, "0x") || len(address) != 42 {
+		return nil, fmt.Errorf("invalid hyperliquid address format: %s (expected 0x... format with 42 characters)", address)
+	}
+
+	log.Printf("[Hyperliquid] Fetching clearinghouse state for address: %s", address)
+
 	payload := map[string]string{
 		"type": "clearinghouseState",
 		"user": address,
@@ -236,21 +268,30 @@ func (a *HyperliquidAdapter) fetchClearinghouseState(ctx context.Context, addres
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+
+	log.Printf("[Hyperliquid] Sending request to %s with payload: %s", hyperliquidInfoURL, string(body))
 
 	resp, err := a.httpClient.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("hyperliquid request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
+	responseBody, _ := io.ReadAll(resp.Body)
+	log.Printf("[Hyperliquid] Response status: %s, body: %s", resp.Status, string(responseBody))
+
+	if resp.StatusCode == 422 {
+		return nil, fmt.Errorf("hyperliquid info error: %s - %s (invalid request format or address)", resp.Status, strings.TrimSpace(string(responseBody)))
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		responseBody, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("hyperliquid info error: %s - %s", resp.Status, strings.TrimSpace(string(responseBody)))
 	}
 
 	var state clearinghouseStateResponse
-	if err := json.NewDecoder(resp.Body).Decode(&state); err != nil {
-		return nil, err
+	if err := json.Unmarshal(responseBody, &state); err != nil {
+		return nil, fmt.Errorf("failed to deserialize hyperliquid response: %w - response: %s", err, string(responseBody))
 	}
 
 	return &state, nil
@@ -273,8 +314,9 @@ type clearinghouseStateResponse struct {
 	MarginSummary struct {
 		AccountValue    string `json:"accountValue"`
 		TotalMarginUsed string `json:"totalMarginUsed"`
+		Withdrawable    string `json:"withdrawable"`
 	} `json:"marginSummary"`
-	Withdrawable   string `json:"withdrawable"`
+	Withdrawable   string `json:"withdrawable,omitempty"`
 	AssetPositions []struct {
 		Position struct {
 			Coin string `json:"coin"`

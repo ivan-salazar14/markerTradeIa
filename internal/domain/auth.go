@@ -22,6 +22,23 @@ type LoginRequest struct {
 	Secret string `json:"secret"`
 }
 
+type WalletChallengeRequest struct {
+	Address string `json:"address"`
+}
+
+type WalletChallengeResponse struct {
+	Address   string `json:"address"`
+	Nonce     string `json:"nonce"`
+	Message   string `json:"message"`
+	ExpiresAt int64  `json:"expires_at"`
+}
+
+type WalletVerifyRequest struct {
+	Address   string `json:"address"`
+	Nonce     string `json:"nonce"`
+	Signature string `json:"signature"`
+}
+
 // AuthConfig contiene la configuración de seguridad.
 type AuthConfig struct {
 	JWTSecret      string

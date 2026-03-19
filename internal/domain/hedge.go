@@ -30,9 +30,9 @@ type UnitStats struct {
 }
 
 type HedgeStats struct {
-	APR              TrendStats    `json:"apr"`
-	FeesAccumulated  CurrencyStats `json:"fees_accumulated"`
-	Delta            UnitStats     `json:"delta"`
+	APR             TrendStats    `json:"apr"`
+	FeesAccumulated CurrencyStats `json:"fees_accumulated"`
+	Delta           UnitStats     `json:"delta"`
 	HedgeEfficiency TrendStats    `json:"hedge_efficiency"`
 }
 
@@ -41,6 +41,9 @@ type WalletInfo struct {
 	Name            string   `json:"name"`
 	Description     string   `json:"description"`
 	Connected       bool     `json:"connected"`
+	Status          string   `json:"status,omitempty"`
+	Verified        bool     `json:"verified"`
+	AccessMode      string   `json:"access_mode,omitempty"`
 	Address         *string  `json:"address"`
 	FullAddress     *string  `json:"full_address"`
 	Permissions     []string `json:"permissions"`
@@ -65,6 +68,9 @@ type WalletActionResponse struct {
 	Success    bool   `json:"success"`
 	WalletType string `json:"wallet_type"`
 	Address    string `json:"address,omitempty"`
+	Status     string `json:"status,omitempty"`
+	Verified   bool   `json:"verified"`
+	AccessMode string `json:"access_mode,omitempty"`
 	Message    string `json:"message"`
 }
 

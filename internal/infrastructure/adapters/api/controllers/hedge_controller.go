@@ -9,6 +9,7 @@ import (
 
 	"github.com/ivan-salazar14/markerTradeIa/internal/application/usecases/hedge"
 	"github.com/ivan-salazar14/markerTradeIa/internal/domain"
+	apiMiddleware "github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/api/middleware"
 )
 
 type HedgeController struct {
@@ -44,7 +45,7 @@ func (c *HedgeController) GetStrategy(w http.ResponseWriter, r *http.Request) {
 func (c *HedgeController) GetStats(w http.ResponseWriter, r *http.Request) {
 	result, err := c.walletSyncUseCase.GetLatestDelta(r.Context(), c.assetFromRequest(r))
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to load stats: %v", err), http.StatusInternalServerError)
+		c.jsonError(w, fmt.Sprintf("failed to load stats: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -66,7 +67,7 @@ func (c *HedgeController) GetStats(w http.ResponseWriter, r *http.Request) {
 func (c *HedgeController) GetWallets(w http.ResponseWriter, r *http.Request) {
 	wallets, err := c.walletSyncUseCase.GetWalletConnections(r.Context())
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to load wallets: %v", err), http.StatusInternalServerError)
+		c.jsonError(w, fmt.Sprintf("failed to load wallets: %v", err), http.StatusInternalServerError)
 		return
 	}
 	c.json(w, wallets)
@@ -75,18 +76,42 @@ func (c *HedgeController) GetWallets(w http.ResponseWriter, r *http.Request) {
 func (c *HedgeController) ConnectWallet(w http.ResponseWriter, r *http.Request) {
 	var req domain.ConnectWalletRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request", http.StatusBadRequest)
+		c.jsonError(w, "invalid request body", http.StatusBadRequest)
 		return
+	}
+	req.Address = strings.TrimSpace(req.Address)
+	if req.Address == "" {
+		c.jsonError(w, "wallet address is required", http.StatusBadRequest)
+		return
+	}
+
+	identity, _ := r.Context().Value(apiMiddleware.IdentityContextKey).(*domain.Identity)
+	if identity == nil {
+		c.jsonError(w, "missing authenticated identity", http.StatusUnauthorized)
+		return
+	}
+
+	status := "read_only"
+	verified := false
+	accessMode := "read_only"
+	if identity.Type == "service" {
+		status = "verified"
+		verified = true
+		accessMode = "manage"
+	} else if identity.Type == "wallet" && strings.EqualFold(identity.ID, req.Address) {
+		status = "verified"
+		verified = true
+		accessMode = "manage"
 	}
 
 	walletData, err := c.walletSyncUseCase.ConnectAndFetchWallet(r.Context(), req.Address)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to connect wallet: %v", err), http.StatusInternalServerError)
+		c.jsonError(w, fmt.Sprintf("failed to connect wallet: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	if err := c.walletSyncUseCase.RegisterWallet(r.Context(), req.WalletType, req.Address); err != nil {
-		http.Error(w, fmt.Sprintf("failed to register wallet: %v", err), http.StatusInternalServerError)
+	if err := c.walletSyncUseCase.RegisterWallet(r.Context(), req.WalletType, req.Address, status); err != nil {
+		c.jsonError(w, fmt.Sprintf("failed to register wallet: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -98,7 +123,10 @@ func (c *HedgeController) ConnectWallet(w http.ResponseWriter, r *http.Request) 
 			Success:    true,
 			WalletType: req.WalletType,
 			Address:    req.Address,
-			Message:    "Wallet conectada y sincronizada exitosamente",
+			Status:     status,
+			Verified:   verified,
+			AccessMode: accessMode,
+			Message:    walletConnectMessage(verified),
 		},
 		Data: walletData,
 	}
@@ -150,12 +178,11 @@ func (c *HedgeController) SyncNow(w http.ResponseWriter, r *http.Request) {
 func (c *HedgeController) GetDelta(w http.ResponseWriter, r *http.Request) {
 	result, err := c.walletSyncUseCase.GetLatestDelta(r.Context(), c.assetFromRequest(r))
 	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to load delta: %v", err), http.StatusInternalServerError)
+		c.jsonError(w, fmt.Sprintf("failed to load delta: %v", err), http.StatusInternalServerError)
 		return
 	}
 	if result == nil {
-		w.WriteHeader(http.StatusNotFound)
-		c.json(w, map[string]string{"error": "no hedge state available yet"})
+		c.jsonError(w, "no hedge state available yet", http.StatusNotFound)
 		return
 	}
 
@@ -239,4 +266,22 @@ func (c *HedgeController) assetFromRequest(r *http.Request) string {
 func (c *HedgeController) json(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(data)
+}
+
+// jsonError writes a JSON error response with the given HTTP status code.
+// This prevents the proxy from seeing text/plain and returning 502.
+func (c *HedgeController) jsonError(w http.ResponseWriter, message string, code int) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": false,
+		"error":   message,
+	})
+}
+
+func walletConnectMessage(verified bool) string {
+	if verified {
+		return "Wallet conectada con permisos de gestion"
+	}
+	return "Wallet conectada en modo lectura. Firma la wallet para habilitar gestion."
 }

@@ -17,14 +17,19 @@ import (
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/perps"
 	"github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/repository/database"
 	hedgeAdapter "github.com/ivan-salazar14/markerTradeIa/internal/infrastructure/adapters/repository/hedgeAdapter"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	err := godotenv.Load()
+
+	if err != nil {
+		log.Fatalf("Error cargando configuracion: %v", err)
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("Error cargando configuracion: %v", err)
 	}
-
 	log.Println("Iniciando servicio hedge delta-neutral...")
 
 	migrator := database.NewMigrator()
@@ -95,7 +100,7 @@ func main() {
 		defaultHLWallet,
 		cfg.SafeMode,
 	)
-	router := api.NewRouter(authSvc, monController, hedgeController)
+	router := api.NewRouter(authSvc, monController, hedgeController, cfg.DisableAuthLocalhost)
 	handler := router.Init()
 
 	go poolMonitoringService.Start(ctx)
